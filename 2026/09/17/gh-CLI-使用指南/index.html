@@ -1,0 +1,502 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>gh CLI 使用指南：命令行玩转 GitHub | KernelDriver</title><meta name="author" content="KernelDriver"><meta name="copyright" content="KernelDriver"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="很多人每天都在用 GitHub——提 PR、看 Issue、查 CI 结果、下 Release，但每次都要切到浏览器、等页面加载、点来点去。gh（GitHub CLI）是 GitHub 官方推出的命令行工具，让你在终端里完成绝大部分 GitHub 操作。这篇整理一下 gh 和 GitHub 的关系、安装配置、常用命令和实战流程（命令语法以 gh 官方手册 为准，版本截至 2.100.0）。 一、g">
+<meta property="og:type" content="article">
+<meta property="og:title" content="gh CLI 使用指南：命令行玩转 GitHub">
+<meta property="og:url" content="http://example.com/2026/09/17/gh-CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/index.html">
+<meta property="og:site_name" content="KernelDriver">
+<meta property="og:description" content="很多人每天都在用 GitHub——提 PR、看 Issue、查 CI 结果、下 Release，但每次都要切到浏览器、等页面加载、点来点去。gh（GitHub CLI）是 GitHub 官方推出的命令行工具，让你在终端里完成绝大部分 GitHub 操作。这篇整理一下 gh 和 GitHub 的关系、安装配置、常用命令和实战流程（命令语法以 gh 官方手册 为准，版本截至 2.100.0）。 一、g">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="http://example.com/img/butterfly-icon.png">
+<meta property="article:published_time" content="2026-09-17T10:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-17T08:22:34.633Z">
+<meta property="article:author" content="KernelDriver">
+<meta property="article:tag" content="GitHub">
+<meta property="article:tag" content="gh">
+<meta property="article:tag" content="CLI">
+<meta property="article:tag" content="开发工具">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/img/butterfly-icon.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "gh CLI 使用指南：命令行玩转 GitHub",
+  "url": "http://example.com/2026/09/17/gh-CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/",
+  "image": "http://example.com/img/butterfly-icon.png",
+  "datePublished": "2026-09-17T10:00:00.000Z",
+  "dateModified": "2026-09-17T08:22:34.633Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "KernelDriver",
+      "url": "http://example.com"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.png"><link rel="canonical" href="http://example.com/2026/09/17/gh-CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.7.0"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.3.1/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: undefined,
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: 'Copy Successful',
+    error: 'Copy Failed',
+    noSupport: 'Browser Not Supported'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: 'Just now',
+    min: 'minutes ago',
+    hour: 'hours ago',
+    day: 'days ago',
+    month: 'months ago'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: 'Load More'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'gh CLI 使用指南：命令行玩转 GitHub',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" href="/css/resume.css"><meta name="generator" content="Hexo 7.1.1"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/img/butterfly-icon.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">3</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">7</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">3</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/resume/"><i class="fa-fw fas fa-user"></i><span> 简历</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/banner.svg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">KernelDriver</span></a><a class="nav-page-title" href="/"><span class="site-name">gh CLI 使用指南：命令行玩转 GitHub</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  Back to Home</span></span></a></span><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/resume/"><i class="fa-fw fas fa-user"></i><span> 简历</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">gh CLI 使用指南：命令行玩转 GitHub</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">Created</span><time class="post-meta-date-created" datetime="2026-09-17T10:00:00.000Z" title="Created 2026-09-17 10:00:00">2026-09-17</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">Updated</span><time class="post-meta-date-updated" datetime="2026-09-17T08:22:34.633Z" title="Updated 2026-09-17 08:22:34">2026-09-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/">开发工具</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">Post Views:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><p>很多人每天都在用 GitHub——提 PR、看 Issue、查 CI 结果、下 Release，但每次都要切到浏览器、等页面加载、点来点去。<code>gh</code>（GitHub CLI）是 GitHub 官方推出的命令行工具，让你在终端里完成绝大部分 GitHub 操作。这篇整理一下 <code>gh</code> 和 GitHub 的关系、安装配置、常用命令和实战流程（命令语法以 <a target="_blank" rel="noopener" href="https://cli.github.com/manual">gh 官方手册</a> 为准，版本截至 2.100.0）。</p>
+<h2 id="一、gh-和-GitHub-是什么关系"><a href="#一、gh-和-GitHub-是什么关系" class="headerlink" title="一、gh 和 GitHub 是什么关系"></a>一、gh 和 GitHub 是什么关系</h2><p>这是本文最核心的问题，先讲清楚。</p>
+<h3 id="1-1-GitHub-是平台"><a href="#1-1-GitHub-是平台" class="headerlink" title="1.1 GitHub 是平台"></a>1.1 GitHub 是平台</h3><p><strong>GitHub</strong> 是一个<strong>Web 平台</strong>（网站），提供代码托管、协作、CI&#x2F;CD（GitHub Actions）、Issue 追踪、项目管理等功能。你平时通过浏览器访问 <code>github.com</code> 来使用它。</p>
+<h3 id="1-2-gh-是工具"><a href="#1-2-gh-是工具" class="headerlink" title="1.2 gh 是工具"></a>1.2 gh 是工具</h3><p><strong>gh</strong>（GitHub CLI）是一个<strong>本地命令行程序</strong>，安装在你的电脑上，通过 GitHub 的 REST&#x2F;GraphQL API 与 GitHub 平台交互。简单说：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>GitHub</th>
+<th>gh</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>本质</td>
+<td>Web 平台（SaaS 服务）</td>
+<td>本地命令行工具（Go 编写的二进制）</td>
+</tr>
+<tr>
+<td>使用方式</td>
+<td>浏览器打开网页</td>
+<td>终端输入命令</td>
+</tr>
+<tr>
+<td>底层协议</td>
+<td>HTTP&#x2F;HTML</td>
+<td>HTTP&#x2F;REST API + GraphQL API</td>
+</tr>
+<tr>
+<td>操作对象</td>
+<td>仓库、Issue、PR、Actions、Release……</td>
+<td><strong>同样的东西</strong>，只是换了入口</td>
+</tr>
+<tr>
+<td>认证</td>
+<td>浏览器登录（用户名+密码&#x2F;OAuth）</td>
+<td>本地 token（<code>gh auth login</code> 后自动管理）</td>
+</tr>
+<tr>
+<td>能力范围</td>
+<td>GitHub 全部功能</td>
+<td>覆盖 ~90% 高频操作，少数设置仍需网页</td>
+</tr>
+</tbody></table>
+<h3 id="1-3-一个类比"><a href="#1-3-一个类比" class="headerlink" title="1.3 一个类比"></a>1.3 一个类比</h3><ul>
+<li><strong>GitHub</strong> 就像银行网点（柜台），你带着身份证去排队办理业务。</li>
+<li><strong>gh</strong> 就像手机银行 App，你在家里点几下就办完了，底层调的是同一套银行系统。</li>
+</ul>
+<h3 id="1-4-什么时候用-gh、什么时候用网页"><a href="#1-4-什么时候用-gh、什么时候用网页" class="headerlink" title="1.4 什么时候用 gh、什么时候用网页"></a>1.4 什么时候用 gh、什么时候用网页</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐方式</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>创建 PR &#x2F; 查看 PR diff</td>
+<td>gh</td>
+<td><code>gh pr create</code> 一条命令搞定，不用切窗口</td>
+</tr>
+<tr>
+<td>批量关闭&#x2F;标签 Issue</td>
+<td>gh</td>
+<td>脚本批量操作，网页要点很多次</td>
+</tr>
+<tr>
+<td>查看 CI 运行日志</td>
+<td>gh</td>
+<td><code>gh run view</code>，还能 <code>--log-failed</code> 只看失败</td>
+</tr>
+<tr>
+<td>创建 Release 并上传产物</td>
+<td>gh</td>
+<td><code>gh release create</code> 一条命令上传多文件</td>
+</tr>
+<tr>
+<td>克隆仓库</td>
+<td>两者都可</td>
+<td><code>gh repo clone</code> 自动用你的认证，不用配 SSH key</td>
+</tr>
+<tr>
+<td>修改仓库 Settings（如改默认分支、配 Secrets）</td>
+<td>网页</td>
+<td>gh 不支持这些操作</td>
+</tr>
+<tr>
+<td>管理 GitHub Actions 密钥</td>
+<td>网页</td>
+<td>需要在仓库 Settings → Secrets 里加</td>
+</tr>
+</tbody></table>
+<p>一句话：<strong>日常高频操作用 gh，管理类配置用网页。</strong></p>
+<h2 id="二、安装与认证"><a href="#二、安装与认证" class="headerlink" title="二、安装与认证"></a>二、安装与认证</h2><h3 id="2-1-安装"><a href="#2-1-安装" class="headerlink" title="2.1 安装"></a>2.1 安装</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># macOS</span></span><br><span class="line">brew install gh</span><br><span class="line"></span><br><span class="line"><span class="comment"># Ubuntu / Debian</span></span><br><span class="line">curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo <span class="built_in">dd</span> of=/usr/share/keyrings/githubcli-archive-keyring.gpg</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;deb [arch=<span class="subst">$(dpkg --print-architecture)</span> signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main&quot;</span> | sudo <span class="built_in">tee</span> /etc/apt/sources.list.d/github-cli.list &gt; /dev/null</span><br><span class="line">sudo apt update &amp;&amp; sudo apt install gh</span><br><span class="line"></span><br><span class="line"><span class="comment"># Windows (PowerShell)</span></span><br><span class="line">winget install --<span class="built_in">id</span> GitHub.cli</span><br><span class="line"><span class="comment"># 或</span></span><br><span class="line">scoop install gh</span><br><span class="line"><span class="comment"># 或</span></span><br><span class="line">choco install gh</span><br></pre></td></tr></table></figure>
+
+<p>验证：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gh --version</span><br><span class="line"><span class="comment"># gh version 2.100.0 (2026-09-03)</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="2-2-认证"><a href="#2-2-认证" class="headerlink" title="2.2 认证"></a>2.2 认证</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gh auth login</span><br></pre></td></tr></table></figure>
+
+<p>交互式引导会让你选：</p>
+<ol>
+<li><strong>GitHub.com</strong> 还是 GitHub Enterprise → 选 GitHub.com</li>
+<li><strong>协议</strong> → HTTPS（推荐，不需要配 SSH key）或 SSH</li>
+<li><strong>认证方式</strong> → 浏览器登录（推荐）或粘贴 token</li>
+</ol>
+<p>浏览器登录方式：终端会给你一个 8 位验证码，自动打开浏览器，粘贴验证码后点 Authorize 即可。认证信息保存在本地，以后所有 <code>gh</code> 命令自动携带。</p>
+<p>验证认证状态：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">gh auth status</span><br><span class="line"><span class="comment"># ✓ Logged in to github.com account KernelDriver-star</span></span><br><span class="line"><span class="comment">#   - Active account: true</span></span><br><span class="line"><span class="comment">#   - Git operations protocol: https</span></span><br><span class="line"><span class="comment">#   - Token: gho_***********************************</span></span><br><span class="line"><span class="comment">#   - Token scopes: repo, read:org, workflow, etc.</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p><strong>Token 权限</strong>：<code>gh auth login</code> 给的 token 默认包含 <code>repo</code>、<code>read:org</code>、<code>workflow</code> 等权限。如果你后续用 <code>gh workflow run</code> 触发 Actions 发现没权限，检查一下 token scopes 是否包含 <code>workflow</code>。</p>
+</blockquote>
+<h2 id="三、仓库操作（gh-repo）"><a href="#三、仓库操作（gh-repo）" class="headerlink" title="三、仓库操作（gh repo）"></a>三、仓库操作（gh repo）</h2><h3 id="3-1-克隆仓库"><a href="#3-1-克隆仓库" class="headerlink" title="3.1 克隆仓库"></a>3.1 克隆仓库</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 克隆自己的仓库（不用写完整 URL，不用配 SSH key）</span></span><br><span class="line">gh repo <span class="built_in">clone</span> KernelDriver-src</span><br><span class="line"></span><br><span class="line"><span class="comment"># 克隆别人的</span></span><br><span class="line">gh repo <span class="built_in">clone</span> cli/cli</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-2-创建仓库"><a href="#3-2-创建仓库" class="headerlink" title="3.2 创建仓库"></a>3.2 创建仓库</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 把当前本地目录推到 GitHub 新仓库</span></span><br><span class="line">gh repo create my-project --public --<span class="built_in">source</span>=. --push</span><br><span class="line"></span><br><span class="line"><span class="comment"># 在 GitHub 上创建空仓库（不克隆到本地）</span></span><br><span class="line">gh repo create my-project --public --<span class="built_in">clone</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 私有仓库 + 添加描述</span></span><br><span class="line">gh repo create my-project --private --description <span class="string">&quot;我的实验项目&quot;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-3-查看仓库信息"><a href="#3-3-查看仓库信息" class="headerlink" title="3.3 查看仓库信息"></a>3.3 查看仓库信息</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 仓库基本信息（描述、star、语言、默认分支等）</span></span><br><span class="line">gh repo view KernelDriver-star/KernelDriver-src</span><br><span class="line"></span><br><span class="line"><span class="comment"># 直接在浏览器打开仓库首页</span></span><br><span class="line">gh repo view --web</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-4-Fork"><a href="#3-4-Fork" class="headerlink" title="3.4 Fork"></a>3.4 Fork</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gh repo fork cli/cli --<span class="built_in">clone</span></span><br><span class="line"><span class="comment"># fork 的同时克隆到本地</span></span><br></pre></td></tr></table></figure>
+
+<h2 id="四、Issue-管理（gh-issue）"><a href="#四、Issue-管理（gh-issue）" class="headerlink" title="四、Issue 管理（gh issue）"></a>四、Issue 管理（gh issue）</h2><h3 id="4-1-查看-Issue"><a href="#4-1-查看-Issue" class="headerlink" title="4.1 查看 Issue"></a>4.1 查看 Issue</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 列出分配给你的 open issue</span></span><br><span class="line">gh issue list --assignee @me</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看某个 issue 详情（标题、正文、评论）</span></span><br><span class="line">gh issue view 42</span><br><span class="line"></span><br><span class="line"><span class="comment"># 在浏览器打开</span></span><br><span class="line">gh issue view 42 --web</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-2-创建-Issue"><a href="#4-2-创建-Issue" class="headerlink" title="4.2 创建 Issue"></a>4.2 创建 Issue</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 交互式（自动打开编辑器写正文）</span></span><br><span class="line">gh issue create --title <span class="string">&quot;修复登录页空白&quot;</span> --body <span class="string">&quot;复现步骤：...&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 从文件读正文</span></span><br><span class="line">gh issue create --title <span class="string">&quot;Bug: crash on startup&quot;</span> --body-file ./bug-report.md</span><br><span class="line"></span><br><span class="line"><span class="comment"># 指定标签和负责人</span></span><br><span class="line">gh issue create --title <span class="string">&quot;文档更新&quot;</span> --label <span class="string">&quot;documentation&quot;</span> --assignee <span class="string">&quot;@me&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># v2.99.0 新功能：附带截图</span></span><br><span class="line">gh issue create --title <span class="string">&quot;UI 错位&quot;</span> --body <span class="string">&quot;见截图&quot;</span> --attach ./screenshot.png</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p><code>--attach</code> 是 v2.99.0 引入的功能，支持 PNG&#x2F;JPEG&#x2F;GIF&#x2F;WebP&#x2F;SVG&#x2F;MP4&#x2F;MOV&#x2F;WebM，图片 ≤10MB，视频 ≤10MB（免费版）或 ≤100MB（付费版）。重复使用 <code>--attach</code> 可一次传多个文件。</p>
+</blockquote>
+<h3 id="4-3-关闭-评论-Issue"><a href="#4-3-关闭-评论-Issue" class="headerlink" title="4.3 关闭 &#x2F; 评论 Issue"></a>4.3 关闭 &#x2F; 评论 Issue</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">gh issue close 42 --comment <span class="string">&quot;已修复，请验证&quot;</span></span><br><span class="line">gh issue comment 42 --body <span class="string">&quot;我在本地复现了，正在排查&quot;</span></span><br><span class="line">gh issue reopen 42</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-4-批量操作（配合脚本）"><a href="#4-4-批量操作（配合脚本）" class="headerlink" title="4.4 批量操作（配合脚本）"></a>4.4 批量操作（配合脚本）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 批量给带有 &quot;bug&quot; 标签的 issue 加上 &quot;priority:high&quot;</span></span><br><span class="line">gh issue list --label <span class="string">&quot;bug&quot;</span> --json number --jq <span class="string">&#x27;.[].number&#x27;</span> | ForEach-Object &#123; gh issue edit <span class="variable">$_</span> --add-label <span class="string">&quot;priority:high&quot;</span> &#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="五、Pull-Request（gh-pr）"><a href="#五、Pull-Request（gh-pr）" class="headerlink" title="五、Pull Request（gh pr）"></a>五、Pull Request（gh pr）</h2><p>这是 <code>gh</code> 用得最多的场景。</p>
+<h3 id="5-1-创建-PR"><a href="#5-1-创建-PR" class="headerlink" title="5.1 创建 PR"></a>5.1 创建 PR</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 最简形式（当前分支 → 默认分支）</span></span><br><span class="line">gh <span class="built_in">pr</span> create --title <span class="string">&quot;重构内存管理模块&quot;</span> --body <span class="string">&quot;变更说明...&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 指定目标分支</span></span><br><span class="line">gh <span class="built_in">pr</span> create --base develop --<span class="built_in">head</span> feature/mmu --title <span class="string">&quot;...&quot;</span> --body <span class="string">&quot;...&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 从模板创建（自动填充 PR 模板）</span></span><br><span class="line">gh <span class="built_in">pr</span> create --fill</span><br><span class="line"><span class="comment"># --fill 会从 .github/PULL_REQUEST_TEMPLATE.md 读取模板</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 附带前后对比截图</span></span><br><span class="line">gh <span class="built_in">pr</span> create --title <span class="string">&quot;UI 优化&quot;</span> --body <span class="string">&quot;前后对比见附件&quot;</span> --attach ./before.png --attach ./after.png</span><br></pre></td></tr></table></figure>
+
+<h3 id="5-2-查看-PR"><a href="#5-2-查看-PR" class="headerlink" title="5.2 查看 PR"></a>5.2 查看 PR</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 列出我的 PR</span></span><br><span class="line">gh <span class="built_in">pr</span> list --assignee @me</span><br><span class="line"></span><br><span class="line"><span class="comment"># PR 详情（含 diff、review 状态、CI 状态）</span></span><br><span class="line">gh <span class="built_in">pr</span> view 15</span><br><span class="line"></span><br><span class="line"><span class="comment"># 只看 diff</span></span><br><span class="line">gh <span class="built_in">pr</span> diff 15</span><br><span class="line"></span><br><span class="line"><span class="comment"># CI 检查状态</span></span><br><span class="line">gh <span class="built_in">pr</span> checks 15</span><br><span class="line"><span class="comment"># ✓  build / compile (pull_request) Successful</span></span><br><span class="line"><span class="comment"># ✓  test / unit (pull_request) Successful</span></span><br><span class="line"><span class="comment"># ✗  lint (pull_request) Failed</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-3-Review-和合并"><a href="#5-3-Review-和合并" class="headerlink" title="5.3 Review 和合并"></a>5.3 Review 和合并</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 审查（approve / request changes / comment）</span></span><br><span class="line">gh <span class="built_in">pr</span> review 15 --approve --body <span class="string">&quot;LGTM&quot;</span></span><br><span class="line">gh <span class="built_in">pr</span> review 15 --request-changes --body <span class="string">&quot;请修复 XX 问题&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 合并（三种策略）</span></span><br><span class="line">gh <span class="built_in">pr</span> merge 15 --squash --delete-branch    <span class="comment"># squash 合并后删分支（最常用）</span></span><br><span class="line">gh <span class="built_in">pr</span> merge 15 --merge                     <span class="comment"># 创建 merge commit</span></span><br><span class="line">gh <span class="built_in">pr</span> merge 15 --rebase                    <span class="comment"># rebase 合并</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-4-Checkout-别人的-PR"><a href="#5-4-Checkout-别人的-PR" class="headerlink" title="5.4 Checkout 别人的 PR"></a>5.4 Checkout 别人的 PR</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 把 PR #15 的分支拉到本地</span></span><br><span class="line">gh <span class="built_in">pr</span> checkout 15</span><br><span class="line"><span class="comment"># 改完之后</span></span><br><span class="line">gh <span class="built_in">pr</span> checkout main   <span class="comment"># 切回主分支</span></span><br></pre></td></tr></table></figure>
+
+<h2 id="六、GitHub-Actions（gh-run-gh-workflow）"><a href="#六、GitHub-Actions（gh-run-gh-workflow）" class="headerlink" title="六、GitHub Actions（gh run &#x2F; gh workflow）"></a>六、GitHub Actions（gh run &#x2F; gh workflow）</h2><h3 id="6-1-查看运行状态"><a href="#6-1-查看运行状态" class="headerlink" title="6.1 查看运行状态"></a>6.1 查看运行状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 最近的运行</span></span><br><span class="line">gh run list --<span class="built_in">limit</span> 10</span><br><span class="line"></span><br><span class="line"><span class="comment"># 某个 workflow 的运行</span></span><br><span class="line">gh run list --workflow=ci.yml</span><br><span class="line"></span><br><span class="line"><span class="comment"># 失败的运行</span></span><br><span class="line">gh run list --status failure</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-2-查看运行详情"><a href="#6-2-查看运行详情" class="headerlink" title="6.2 查看运行详情"></a>6.2 查看运行详情</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 概览（含每个 job 的状态）</span></span><br><span class="line">gh run view 12345</span><br><span class="line"></span><br><span class="line"><span class="comment"># 只看失败的日志（超实用！）</span></span><br><span class="line">gh run view 12345 --log-failed</span><br><span class="line"></span><br><span class="line"><span class="comment"># 看完整日志</span></span><br><span class="line">gh run view 12345 --<span class="built_in">log</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p><code>--log-failed</code> 是日常排查 CI 失败的利器——不用打开浏览器翻日志，直接在终端看报错。</p>
+</blockquote>
+<h3 id="6-3-手动触发和重跑"><a href="#6-3-手动触发和重跑" class="headerlink" title="6.3 手动触发和重跑"></a>6.3 手动触发和重跑</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 触发 workflow_dispatch</span></span><br><span class="line">gh workflow run deploy.yml --ref main</span><br><span class="line"></span><br><span class="line"><span class="comment"># 重跑失败的 job</span></span><br><span class="line">gh run rerun 12345 --failed</span><br><span class="line"></span><br><span class="line"><span class="comment"># 取消正在跑的</span></span><br><span class="line">gh run cancel 12345</span><br></pre></td></tr></table></figure>
+
+<h2 id="七、Release（gh-release）"><a href="#七、Release（gh-release）" class="headerlink" title="七、Release（gh release）"></a>七、Release（gh release）</h2><h3 id="7-1-创建-Release"><a href="#7-1-创建-Release" class="headerlink" title="7.1 创建 Release"></a>7.1 创建 Release</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 最简形式（给最新 tag 创建 release）</span></span><br><span class="line">gh release create v1.0.0 --title <span class="string">&quot;v1.0.0&quot;</span> --notes <span class="string">&quot;首个正式版本&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 上传产物（二进制 / 压缩包）</span></span><br><span class="line">gh release create v1.0.0 \</span><br><span class="line">  --title <span class="string">&quot;v1.0.0&quot;</span> \</span><br><span class="line">  --notes <span class="string">&quot;首个正式版本&quot;</span> \</span><br><span class="line">  ./dist/app-linux-amd64 \</span><br><span class="line">  ./dist/app-windows-amd64.exe \</span><br><span class="line">  ./dist/app-darwin-arm64</span><br><span class="line"></span><br><span class="line"><span class="comment"># 从 CHANGELOG 生成 release notes</span></span><br><span class="line">gh release create v1.0.0 --generate-notes</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p><code>--generate-notes</code> 会自动根据 PR 标题生成变更日志，非常省事。</p>
+</blockquote>
+<h3 id="7-2-下载-Release"><a href="#7-2-下载-Release" class="headerlink" title="7.2 下载 Release"></a>7.2 下载 Release</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 下载最新 release 的所有产物</span></span><br><span class="line">gh release download --pattern <span class="string">&quot;*linux*&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 下载指定版本的某个文件</span></span><br><span class="line">gh release download v1.2.0 --pattern <span class="string">&quot;app-linux-amd64&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 下载源码包</span></span><br><span class="line">gh release download v1.0.0 --archive zip</span><br></pre></td></tr></table></figure>
+
+<h2 id="八、API-直调（gh-api）"><a href="#八、API-直调（gh-api）" class="headerlink" title="八、API 直调（gh api）"></a>八、API 直调（gh api）</h2><p>当 <code>gh</code> 内置命令不够用时，可以直接调 GitHub API：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># REST API</span></span><br><span class="line">gh api repos/KernelDriver-star/KernelDriver-src/commits --jq <span class="string">&#x27;.[0].commit.message&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># GraphQL API</span></span><br><span class="line">gh api graphql -f query=<span class="string">&#x27;</span></span><br><span class="line"><span class="string">&#123;</span></span><br><span class="line"><span class="string">  viewer &#123;</span></span><br><span class="line"><span class="string">    login</span></span><br><span class="line"><span class="string">    repositories(first: 5) &#123;</span></span><br><span class="line"><span class="string">      nodes &#123; nameWithOwner stargazerCount &#125;</span></span><br><span class="line"><span class="string">    &#125;</span></span><br><span class="line"><span class="string">  &#125;</span></span><br><span class="line"><span class="string">&#125;&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 用 jq 提取字段</span></span><br><span class="line">gh api repos/cli/cli/pulls --jq <span class="string">&#x27;.[].title&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p><code>gh api</code> 自动携带你的认证 token，不用手动加 Header。支持 <code>--paginate</code>（自动翻页）、<code>-X</code>（指定 HTTP 方法）、<code>-f</code>（表单字段）等。</p>
+</blockquote>
+<h2 id="九、扩展（gh-extension）"><a href="#九、扩展（gh-extension）" class="headerlink" title="九、扩展（gh extension）"></a>九、扩展（gh extension）</h2><p><code>gh</code> 支持社区扩展，相当于插件系统：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 列出已安装扩展</span></span><br><span class="line">gh extension list</span><br><span class="line"></span><br><span class="line"><span class="comment"># 安装扩展（从 GitHub 仓库）</span></span><br><span class="line">gh extension install dlvhdr/gh-dash      <span class="comment"># 仪表盘，终端看 PR/Issue 概览</span></span><br><span class="line">gh extension install cli/gh-extension-precompile  <span class="comment"># 预编译辅助</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># v2.100.0 新增：webhook 官方扩展</span></span><br><span class="line">gh extension install github/gh-webhook</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>v2.100.0 还引入了实验性的 <code>api_host</code> 配置，可以把 API 流量路由到自定义网关（企业级用途）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gh config <span class="built_in">set</span> api_host gh-gateway.example.com --host github.com</span><br></pre></td></tr></table></figure>
+</blockquote>
+<h2 id="十、常用技巧"><a href="#十、常用技巧" class="headerlink" title="十、常用技巧"></a>十、常用技巧</h2><h3 id="10-1-–json-–jq：数据提取"><a href="#10-1-–json-–jq：数据提取" class="headerlink" title="10.1 –json + –jq：数据提取"></a>10.1 –json + –jq：数据提取</h3><p>几乎所有 <code>gh</code> 命令都支持 JSON 输出，配合 <code>jq</code> 提取你想要的字段：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 列出所有仓库的名称和 star 数</span></span><br><span class="line">gh repo list --json nameWithOwner,stargazerCount --jq <span class="string">&#x27;.[] | &quot;\(.nameWithOwner): \(.stargazerCount) stars&quot;&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 列出 PR 的所有 reviewer</span></span><br><span class="line">gh <span class="built_in">pr</span> view 15 --json reviews --jq <span class="string">&#x27;.reviews[].author.login&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="10-2-–jq-省去管道"><a href="#10-2-–jq-省去管道" class="headerlink" title="10.2 –jq 省去管道"></a>10.2 –jq 省去管道</h3><p><code>--jq</code> 是内置的，不需要装 <code>jq</code> 命令：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 不用 --jq（需要管道）</span></span><br><span class="line">gh <span class="built_in">pr</span> list --json number,title | jq -r <span class="string">&#x27;.[] | &quot;#\(.number) \(.title)&quot;&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 用 --jq（更简洁）</span></span><br><span class="line">gh <span class="built_in">pr</span> list --json number,title --jq <span class="string">&#x27;.[] | &quot;#\(.number) \(.title)&quot;&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="10-3-在脚本中使用-gh"><a href="#10-3-在脚本中使用-gh" class="headerlink" title="10.3 在脚本中使用 gh"></a>10.3 在脚本中使用 gh</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># CI 脚本：如果构建产物存在，自动创建 release</span></span><br><span class="line"><span class="keyword">if</span> [ -f ./dist/app ]; <span class="keyword">then</span></span><br><span class="line">  gh release create <span class="string">&quot;<span class="variable">$VERSION</span>&quot;</span> --generate-notes ./dist/app</span><br><span class="line"><span class="keyword">fi</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 自动给 PR 加标签</span></span><br><span class="line">gh <span class="built_in">pr</span> create --title <span class="string">&quot;feat: add GPU profiler&quot;</span> --body <span class="string">&quot;...&quot;</span> --label <span class="string">&quot;enhancement&quot;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="10-4-设置默认仓库"><a href="#10-4-设置默认仓库" class="headerlink" title="10.4 设置默认仓库"></a>10.4 设置默认仓库</h3><p>如果你经常在某个仓库下操作，不用每次写 <code>-R owner/repo</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 在仓库目录下执行（会读取 .git/config 的 remote）</span></span><br><span class="line"><span class="built_in">cd</span> ~/code/KernelDriver-src</span><br><span class="line">gh <span class="built_in">pr</span> list    <span class="comment"># 自动识别为 KernelDriver-star/KernelDriver-src</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>如果你的 git remote 指向代理而非 github.com，每次都要加 <code>-R owner/repo</code>。</p>
+</blockquote>
+<h3 id="10-5-gh-config：全局配置"><a href="#10-5-gh-config：全局配置" class="headerlink" title="10.5 gh config：全局配置"></a>10.5 gh config：全局配置</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看所有配置</span></span><br><span class="line">gh config list</span><br><span class="line"></span><br><span class="line"><span class="comment"># 设置默认编辑器</span></span><br><span class="line">gh config <span class="built_in">set</span> editor <span class="string">&quot;code --wait&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 设置 git 协议</span></span><br><span class="line">gh config <span class="built_in">set</span> git_protocol https</span><br></pre></td></tr></table></figure>
+
+<h2 id="十一、速查表"><a href="#十一、速查表" class="headerlink" title="十一、速查表"></a>十一、速查表</h2><table>
+<thead>
+<tr>
+<th>命令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>gh auth login</code> &#x2F; <code>gh auth status</code></td>
+<td>登录 &#x2F; 查看认证状态</td>
+</tr>
+<tr>
+<td><code>gh repo clone &lt;name&gt;</code></td>
+<td>克隆仓库</td>
+</tr>
+<tr>
+<td><code>gh repo create &lt;name&gt; --public --source=. --push</code></td>
+<td>创建仓库并推送本地代码</td>
+</tr>
+<tr>
+<td><code>gh repo view [--web]</code></td>
+<td>查看仓库信息 &#x2F; 浏览器打开</td>
+</tr>
+<tr>
+<td><code>gh issue list --assignee @me</code></td>
+<td>列出分配给我的 Issue</td>
+</tr>
+<tr>
+<td><code>gh issue create --title &quot;...&quot; --body &quot;...&quot;</code></td>
+<td>创建 Issue</td>
+</tr>
+<tr>
+<td><code>gh issue view &lt;N&gt; [--web]</code></td>
+<td>查看 Issue</td>
+</tr>
+<tr>
+<td><code>gh issue close &lt;N&gt;</code> &#x2F; <code>gh issue comment &lt;N&gt; --body &quot;...&quot;</code></td>
+<td>关闭 &#x2F; 评论 Issue</td>
+</tr>
+<tr>
+<td><code>gh pr create --title &quot;...&quot; --body &quot;...&quot;</code></td>
+<td>创建 PR</td>
+</tr>
+<tr>
+<td><code>gh pr list --assignee @me</code></td>
+<td>列出我的 PR</td>
+</tr>
+<tr>
+<td><code>gh pr view &lt;N&gt;</code> &#x2F; <code>gh pr diff &lt;N&gt;</code></td>
+<td>查看 PR 详情 &#x2F; diff</td>
+</tr>
+<tr>
+<td><code>gh pr checks &lt;N&gt;</code></td>
+<td>查看 PR 的 CI 检查状态</td>
+</tr>
+<tr>
+<td><code>gh pr review &lt;N&gt; --approve</code></td>
+<td>审查通过</td>
+</tr>
+<tr>
+<td><code>gh pr merge &lt;N&gt; --squash --delete-branch</code></td>
+<td>Squash 合并并删分支</td>
+</tr>
+<tr>
+<td><code>gh pr checkout &lt;N&gt;</code></td>
+<td>拉取 PR 分支到本地</td>
+</tr>
+<tr>
+<td><code>gh run list</code> &#x2F; <code>gh run view &lt;N&gt;</code></td>
+<td>列出 &#x2F; 查看 CI 运行</td>
+</tr>
+<tr>
+<td><code>gh run view &lt;N&gt; --log-failed</code></td>
+<td>只看失败的 CI 日志</td>
+</tr>
+<tr>
+<td><code>gh run rerun &lt;N&gt; --failed</code></td>
+<td>重跑失败的 job</td>
+</tr>
+<tr>
+<td><code>gh workflow run &lt;file&gt;</code></td>
+<td>手动触发 workflow</td>
+</tr>
+<tr>
+<td><code>gh release create &lt;tag&gt;</code></td>
+<td>创建 Release</td>
+</tr>
+<tr>
+<td><code>gh release create &lt;tag&gt; --generate-notes</code></td>
+<td>自动生成变更日志</td>
+</tr>
+<tr>
+<td><code>gh release download &lt;tag&gt;</code></td>
+<td>下载 Release 产物</td>
+</tr>
+<tr>
+<td><code>gh api &lt;endpoint&gt; --jq &#39;.field&#39;</code></td>
+<td>直接调 GitHub API</td>
+</tr>
+<tr>
+<td><code>gh extension install &lt;repo&gt;</code></td>
+<td>安装社区扩展</td>
+</tr>
+<tr>
+<td><code>gh config set &lt;key&gt; &lt;value&gt;</code></td>
+<td>设置全局配置</td>
+</tr>
+</tbody></table>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><p><code>gh</code> 不是 GitHub 的替代品，而是<strong>加速器</strong>。GitHub 平台提供全部功能，<code>gh</code> 让你在终端里高频操作时不用切窗口、不用等网页加载、还能写脚本批量自动化。</p>
+<p>核心思路：<strong>人机交互用 <code>gh</code>（创建 PR、查 CI、关 Issue），管理配置用网页（仓库 Settings、Secrets、Branch protection）。</strong> 把 <code>gh pr create</code>、<code>gh run view --log-failed</code>、<code>gh release create --generate-notes</code> 这三板斧用熟，日常工作效率就能提升一大截。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>Author: </span><span class="post-copyright-info"><a href="http://example.com">KernelDriver</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>Link: </span><span class="post-copyright-info"><a href="http://example.com/2026/09/17/gh-CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/">http://example.com/2026/09/17/gh-CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>Copyright Notice: </span><span class="post-copyright-info">All articles on this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless otherwise stated.</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/GitHub/">GitHub</a><a class="post-meta__tags" href="/tags/gh/">gh</a><a class="post-meta__tags" href="/tags/CLI/">CLI</a><a class="post-meta__tags" href="/tags/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/">开发工具</a></div><div class="post-share"><div class="social-share" data-image="/img/butterfly-icon.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/09/16/Cuda-GDB/" title="CUDA-GDB 使用指南：GPU kernel Function 调试从入门到实践"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-right"><div class="info-1"><div class="info-item-1">Next</div><div class="info-item-2">CUDA-GDB 使用指南：GPU kernel Function 调试从入门到实践</div></div><div class="info-2"><div class="info-item-1">写 CUDA 代码最痛苦的莫过于——CPU 端跑得好好的，一到 GPU 上就段错误、结果不对或者干脆卡死，printf 大法既慢又难定位。cuda-gdb 是 NVIDIA 官方提供的 GPU 源码级调试器，基于 GDB 扩展，能让你像调 CPU 程序一样在 GPU 内核里打断点、单步、查看变量。这篇整理一下实际开发中常用的流程和命令（命令语法以 NVIDIA 官方 CUDA-GDB 手册为准）。 一、环境准备1.1 前置条件 安装 CUDA Toolkit（自带 cuda-gdb，不需要单独装） GPU 驱动版本 ≥ CUDA 版本对应要求 Linux 环境（cuda-gdb 对 Linux&#x2F;QNX 支持最完整，Windows 下功能有限） 编译时加 -G 选项生成调试信息（关键！）  1.2 验证安装12cuda-gdb --version# CUDA GDB release x.y.z  12nvidia-smi# 确认 GPU 可用、驱动版本匹配  1.3 编译带调试信息的 CUDA 代码1nvcc -G -g -O0 -o myapp myapp.cu    ...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>Related Articles</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2026/09/16/Cuda-GDB/" title="CUDA-GDB 使用指南：GPU kernel Function 调试从入门到实践"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-16</div><div class="info-item-2">CUDA-GDB 使用指南：GPU kernel Function 调试从入门到实践</div></div><div class="info-2"><div class="info-item-1">写 CUDA 代码最痛苦的莫过于——CPU 端跑得好好的，一到 GPU 上就段错误、结果不对或者干脆卡死，printf 大法既慢又难定位。cuda-gdb 是 NVIDIA 官方提供的 GPU 源码级调试器，基于 GDB 扩展，能让你像调 CPU 程序一样在 GPU 内核里打断点、单步、查看变量。这篇整理一下实际开发中常用的流程和命令（命令语法以 NVIDIA 官方 CUDA-GDB 手册为准）。 一、环境准备1.1 前置条件 安装 CUDA Toolkit（自带 cuda-gdb，不需要单独装） GPU 驱动版本 ≥ CUDA 版本对应要求 Linux 环境（cuda-gdb 对 Linux&#x2F;QNX 支持最完整，Windows 下功能有限） 编译时加 -G 选项生成调试信息（关键！）  1.2 验证安装12cuda-gdb --version# CUDA GDB release x.y.z  12nvidia-smi# 确认 GPU 可用、驱动版本匹配  1.3 编译带调试信息的 CUDA 代码1nvcc -G -g -O0 -o myapp myapp.cu    ...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/img/butterfly-icon.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">KernelDriver</div><div class="author-info-description">专注内核与GPU驱动开发，记录学习与实践</div><div class="site-data"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">3</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">7</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">3</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/KernelDriver-star"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>Announcement</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>Contents</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81gh-%E5%92%8C-GitHub-%E6%98%AF%E4%BB%80%E4%B9%88%E5%85%B3%E7%B3%BB"><span class="toc-number">1.</span> <span class="toc-text">一、gh 和 GitHub 是什么关系</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-GitHub-%E6%98%AF%E5%B9%B3%E5%8F%B0"><span class="toc-number">1.1.</span> <span class="toc-text">1.1 GitHub 是平台</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-gh-%E6%98%AF%E5%B7%A5%E5%85%B7"><span class="toc-number">1.2.</span> <span class="toc-text">1.2 gh 是工具</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-%E4%B8%80%E4%B8%AA%E7%B1%BB%E6%AF%94"><span class="toc-number">1.3.</span> <span class="toc-text">1.3 一个类比</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-4-%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8-gh%E3%80%81%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8%E7%BD%91%E9%A1%B5"><span class="toc-number">1.4.</span> <span class="toc-text">1.4 什么时候用 gh、什么时候用网页</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E5%AE%89%E8%A3%85%E4%B8%8E%E8%AE%A4%E8%AF%81"><span class="toc-number">2.</span> <span class="toc-text">二、安装与认证</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E5%AE%89%E8%A3%85"><span class="toc-number">2.1.</span> <span class="toc-text">2.1 安装</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E8%AE%A4%E8%AF%81"><span class="toc-number">2.2.</span> <span class="toc-text">2.2 认证</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E4%BB%93%E5%BA%93%E6%93%8D%E4%BD%9C%EF%BC%88gh-repo%EF%BC%89"><span class="toc-number">3.</span> <span class="toc-text">三、仓库操作（gh repo）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-%E5%85%8B%E9%9A%86%E4%BB%93%E5%BA%93"><span class="toc-number">3.1.</span> <span class="toc-text">3.1 克隆仓库</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-%E5%88%9B%E5%BB%BA%E4%BB%93%E5%BA%93"><span class="toc-number">3.2.</span> <span class="toc-text">3.2 创建仓库</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-%E6%9F%A5%E7%9C%8B%E4%BB%93%E5%BA%93%E4%BF%A1%E6%81%AF"><span class="toc-number">3.3.</span> <span class="toc-text">3.3 查看仓库信息</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-Fork"><span class="toc-number">3.4.</span> <span class="toc-text">3.4 Fork</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81Issue-%E7%AE%A1%E7%90%86%EF%BC%88gh-issue%EF%BC%89"><span class="toc-number">4.</span> <span class="toc-text">四、Issue 管理（gh issue）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E6%9F%A5%E7%9C%8B-Issue"><span class="toc-number">4.1.</span> <span class="toc-text">4.1 查看 Issue</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-%E5%88%9B%E5%BB%BA-Issue"><span class="toc-number">4.2.</span> <span class="toc-text">4.2 创建 Issue</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-%E5%85%B3%E9%97%AD-%E8%AF%84%E8%AE%BA-Issue"><span class="toc-number">4.3.</span> <span class="toc-text">4.3 关闭 &#x2F; 评论 Issue</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-4-%E6%89%B9%E9%87%8F%E6%93%8D%E4%BD%9C%EF%BC%88%E9%85%8D%E5%90%88%E8%84%9A%E6%9C%AC%EF%BC%89"><span class="toc-number">4.4.</span> <span class="toc-text">4.4 批量操作（配合脚本）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81Pull-Request%EF%BC%88gh-pr%EF%BC%89"><span class="toc-number">5.</span> <span class="toc-text">五、Pull Request（gh pr）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-%E5%88%9B%E5%BB%BA-PR"><span class="toc-number">5.1.</span> <span class="toc-text">5.1 创建 PR</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-%E6%9F%A5%E7%9C%8B-PR"><span class="toc-number">5.2.</span> <span class="toc-text">5.2 查看 PR</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-Review-%E5%92%8C%E5%90%88%E5%B9%B6"><span class="toc-number">5.3.</span> <span class="toc-text">5.3 Review 和合并</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-4-Checkout-%E5%88%AB%E4%BA%BA%E7%9A%84-PR"><span class="toc-number">5.4.</span> <span class="toc-text">5.4 Checkout 别人的 PR</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81GitHub-Actions%EF%BC%88gh-run-gh-workflow%EF%BC%89"><span class="toc-number">6.</span> <span class="toc-text">六、GitHub Actions（gh run &#x2F; gh workflow）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-%E6%9F%A5%E7%9C%8B%E8%BF%90%E8%A1%8C%E7%8A%B6%E6%80%81"><span class="toc-number">6.1.</span> <span class="toc-text">6.1 查看运行状态</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-%E6%9F%A5%E7%9C%8B%E8%BF%90%E8%A1%8C%E8%AF%A6%E6%83%85"><span class="toc-number">6.2.</span> <span class="toc-text">6.2 查看运行详情</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-%E6%89%8B%E5%8A%A8%E8%A7%A6%E5%8F%91%E5%92%8C%E9%87%8D%E8%B7%91"><span class="toc-number">6.3.</span> <span class="toc-text">6.3 手动触发和重跑</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81Release%EF%BC%88gh-release%EF%BC%89"><span class="toc-number">7.</span> <span class="toc-text">七、Release（gh release）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-%E5%88%9B%E5%BB%BA-Release"><span class="toc-number">7.1.</span> <span class="toc-text">7.1 创建 Release</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-%E4%B8%8B%E8%BD%BD-Release"><span class="toc-number">7.2.</span> <span class="toc-text">7.2 下载 Release</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81API-%E7%9B%B4%E8%B0%83%EF%BC%88gh-api%EF%BC%89"><span class="toc-number">8.</span> <span class="toc-text">八、API 直调（gh api）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B9%9D%E3%80%81%E6%89%A9%E5%B1%95%EF%BC%88gh-extension%EF%BC%89"><span class="toc-number">9.</span> <span class="toc-text">九、扩展（gh extension）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E3%80%81%E5%B8%B8%E7%94%A8%E6%8A%80%E5%B7%A7"><span class="toc-number">10.</span> <span class="toc-text">十、常用技巧</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#10-1-%E2%80%93json-%E2%80%93jq%EF%BC%9A%E6%95%B0%E6%8D%AE%E6%8F%90%E5%8F%96"><span class="toc-number">10.1.</span> <span class="toc-text">10.1 –json + –jq：数据提取</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-2-%E2%80%93jq-%E7%9C%81%E5%8E%BB%E7%AE%A1%E9%81%93"><span class="toc-number">10.2.</span> <span class="toc-text">10.2 –jq 省去管道</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-3-%E5%9C%A8%E8%84%9A%E6%9C%AC%E4%B8%AD%E4%BD%BF%E7%94%A8-gh"><span class="toc-number">10.3.</span> <span class="toc-text">10.3 在脚本中使用 gh</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-4-%E8%AE%BE%E7%BD%AE%E9%BB%98%E8%AE%A4%E4%BB%93%E5%BA%93"><span class="toc-number">10.4.</span> <span class="toc-text">10.4 设置默认仓库</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-5-gh-config%EF%BC%9A%E5%85%A8%E5%B1%80%E9%85%8D%E7%BD%AE"><span class="toc-number">10.5.</span> <span class="toc-text">10.5 gh config：全局配置</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E4%B8%80%E3%80%81%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="toc-number">11.</span> <span class="toc-text">十一、速查表</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B0%8F%E7%BB%93"><span class="toc-number">12.</span> <span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>Recent Posts</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/17/gh-CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/" title="gh CLI 使用指南：命令行玩转 GitHub">gh CLI 使用指南：命令行玩转 GitHub</a><time datetime="2026-09-17T10:00:00.000Z" title="Created 2026-09-17 10:00:00">2026-09-17</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/16/Cuda-GDB/" title="CUDA-GDB 使用指南：GPU kernel Function 调试从入门到实践">CUDA-GDB 使用指南：GPU kernel Function 调试从入门到实践</a><time datetime="2026-09-16T10:00:00.000Z" title="Created 2026-09-16 10:00:00">2026-09-16</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/09/hello-world/" title="如何部署和启动一个网站（以 Hexo 博客为例）">如何部署和启动一个网站（以 Hexo 博客为例）</a><time datetime="2026-09-09T10:00:00.000Z" title="Created 2026-09-09 10:00:00">2026-09-09</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By KernelDriver</span><span class="framework-info"><span>Framework </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.1.1</a><span class="footer-separator">|</span><span>Theme </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.7.0</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="Reading Mode"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="Toggle Between Light and Dark Mode"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="Toggle Between Single-column and Double-column"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="Settings"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="Table of Contents"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="Back to Top"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.7.0"></script><script src="/js/main.js?v=5.7.0"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script></div></body></html>
