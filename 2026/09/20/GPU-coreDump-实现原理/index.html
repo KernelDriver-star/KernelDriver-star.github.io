@@ -1,0 +1,527 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解 | KernelDriver</title><meta name="author" content="KernelDriver"><meta name="copyright" content="KernelDriver"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="GPU 程序跑飞了怎么定位？CPU 上靠 ulimit -c unlimited + gdb 就能拿到崩溃时的寄存器和栈，GPU 上却没这么简单——GPU 没有独立的 OS、没有 &#x2F;proc&#x2F;&lt;pid&gt;&#x2F;maps，整张卡的现场全靠驱动配合 runtime 把显存和寄存器拍照保存下来。这篇把 GPU coreDump 的实现原理讲清楚：触发条件、生成路径、文件格式、加载调试，以及 NVI">
+<meta property="og:type" content="article">
+<meta property="og:title" content="GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解">
+<meta property="og:url" content="http://example.com/2026/09/20/GPU-coreDump-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/index.html">
+<meta property="og:site_name" content="KernelDriver">
+<meta property="og:description" content="GPU 程序跑飞了怎么定位？CPU 上靠 ulimit -c unlimited + gdb 就能拿到崩溃时的寄存器和栈，GPU 上却没这么简单——GPU 没有独立的 OS、没有 &#x2F;proc&#x2F;&lt;pid&gt;&#x2F;maps，整张卡的现场全靠驱动配合 runtime 把显存和寄存器拍照保存下来。这篇把 GPU coreDump 的实现原理讲清楚：触发条件、生成路径、文件格式、加载调试，以及 NVI">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="http://example.com/img/butterfly-icon.png">
+<meta property="article:published_time" content="2026-09-20T10:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-20T13:12:43.540Z">
+<meta property="article:author" content="KernelDriver">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="coreDump">
+<meta property="article:tag" content="调试">
+<meta property="article:tag" content="ELF">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/img/butterfly-icon.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解",
+  "url": "http://example.com/2026/09/20/GPU-coreDump-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/",
+  "image": "http://example.com/img/butterfly-icon.png",
+  "datePublished": "2026-09-20T10:00:00.000Z",
+  "dateModified": "2026-09-20T13:12:43.540Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "KernelDriver",
+      "url": "http://example.com"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.png"><link rel="canonical" href="http://example.com/2026/09/20/GPU-coreDump-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.7.0"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.3.1/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: undefined,
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: 'Copy Successful',
+    error: 'Copy Failed',
+    noSupport: 'Browser Not Supported'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: 'Just now',
+    min: 'minutes ago',
+    hour: 'hours ago',
+    day: 'days ago',
+    month: 'months ago'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: 'Load More'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" href="/css/resume.css"><meta name="generator" content="Hexo 7.1.1"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/img/butterfly-icon.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">7</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">20</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">4</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/resume/"><i class="fa-fw fas fa-user"></i><span> 简历</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/banner.svg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">KernelDriver</span></a><a class="nav-page-title" href="/"><span class="site-name">GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  Back to Home</span></span></a></span><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/resume/"><i class="fa-fw fas fa-user"></i><span> 简历</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">Created</span><time class="post-meta-date-created" datetime="2026-09-20T10:00:00.000Z" title="Created 2026-09-20 10:00:00">2026-09-20</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">Updated</span><time class="post-meta-date-updated" datetime="2026-09-20T13:12:43.540Z" title="Updated 2026-09-20 13:12:43">2026-09-20</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/GPU/">GPU</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">Post Views:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><p>GPU 程序跑飞了怎么定位？CPU 上靠 <code>ulimit -c unlimited</code> + <code>gdb</code> 就能拿到崩溃时的寄存器和栈，GPU 上却没这么简单——GPU 没有独立的 OS、没有 <code>/proc/&lt;pid&gt;/maps</code>，整张卡的现场全靠驱动配合 runtime 把显存和寄存器拍照保存下来。这篇把 GPU coreDump 的实现原理讲清楚：触发条件、生成路径、文件格式、加载调试，以及 NVIDIA 与 AMD 两种生态的差异（内容以 <a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-gdb/">CUDA-GDB 手册</a> 和 <a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__COREDUMP.html">CUDA Driver API Coredump Attributes</a> 为准）。</p>
+<h2 id="一、先回答：GPU-coreDump-到底是什么"><a href="#一、先回答：GPU-coreDump-到底是什么" class="headerlink" title="一、先回答：GPU coreDump 到底是什么"></a>一、先回答：GPU coreDump 到底是什么</h2><p>GPU coreDump（GPU 核心转储）是 GPU 在异常或主动触发时，由 GPU 驱动 + runtime 协作把当前 GPU 上下文快照到一个文件里的产物。它和 CPU 的 <code>core</code> 文件目的相同——事后调试（post-mortem debugging），但内容结构完全不同：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>CPU core dump</th>
+<th>GPU coreDump</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>生成方</td>
+<td>Linux 内核（<code>coredump</code> 流程）</td>
+<td>GPU 驱动 + runtime（如 CUDA driver &#x2F; ROCr）</td>
+</tr>
+<tr>
+<td>文件内容</td>
+<td>进程虚拟内存映射 + 通用寄存器</td>
+<td>GPU 设备内存 + warp&#x2F;线程上下文 + 加载的 cubin&#x2F;ELF 镜像</td>
+</tr>
+<tr>
+<td>触发信号</td>
+<td><code>SIGSEGV</code>、<code>SIGABRT</code> 等</td>
+<td>GPU 异常（Xid 13&#x2F;31&#x2F;43 等）或用户主动触发</td>
+</tr>
+<tr>
+<td>加载方式</td>
+<td><code>gdb ./a.out core</code></td>
+<td><code>cuda-gdb</code> &#x2F; <code>rocgdb</code> 配合 <code>target cudacore</code></td>
+</tr>
+<tr>
+<td>默认路径</td>
+<td><code>core</code> 或 <code>core.PID</code></td>
+<td><code>core.cuda.HOSTNAME.PID</code>（CUDA 默认）</td>
+</tr>
+</tbody></table>
+<p>理解 GPU coreDump 的关键，是理解它是一份<strong>由 GPU 驱动在内核态+用户态联合构造的、基于 ELF 容器扩展的</strong>结构化快照，而不是简单的”内存 memcpy”。</p>
+<h2 id="二、CUDA-coreDump-的整体架构"><a href="#二、CUDA-coreDump-的整体架构" class="headerlink" title="二、CUDA coreDump 的整体架构"></a>二、CUDA coreDump 的整体架构</h2><p>NVIDIA 是目前把 GPU coreDump 做得最完整的厂商。整个机制在 CUDA 7.0 引入，到 CUDA 12 系列已经形成”环境变量 + Driver API + 回调 + 轻量级模式”四位一体的体系。</p>
+<h3 id="2-1-触发路径"><a href="#2-1-触发路径" class="headerlink" title="2.1 触发路径"></a>2.1 触发路径</h3><p>GPU coreDump 不是凭空生成的，需要先有”触发点”。CUDA 提供四类触发方式：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">┌──────────────────────────────────────────────────────────┐</span><br><span class="line">│   1. 异常触发（被动）                                       │</span><br><span class="line">│      CUDA_ENABLE_COREDUMP_ON_EXCEPTION=1                  │</span><br><span class="line">│      → GPU 异常（如非法访问、非法指令）→ 驱动捕获 → 写文件    │</span><br><span class="line">├──────────────────────────────────────────────────────────┤</span><br><span class="line">│   2. 用户主动触发                                           │</span><br><span class="line">│      CU_COREDUMP_ENABLE_USER_TRIGGER + cuCoredumpGenerate │</span><br><span class="line">│      → 应用代码主动调用，类似 CPU 上 gcore                   │</span><br><span class="line">├──────────────────────────────────────────────────────────┤</span><br><span class="line">│   3. Host 端触发                                           │</span><br><span class="line">│      CU_COREDUMP_TRIGGER_HOST                              │</span><br><span class="line">│      → CPU 端崩溃时连带生成 GPU 端转储                       │</span><br><span class="line">├──────────────────────────────────────────────────────────┤</span><br><span class="line">│   4. 命名管道（流式）                                       │</span><br><span class="line">│      CU_COREDUMP_PIPE / CUDA_COREDUMP_PIPE                 │</span><br><span class="line">│      → 不落地为文件，直接写到 FIFO 给消费端处理              │</span><br><span class="line">└──────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<p>第 4 种是 CUDA 12.3 新增的能力，让外挂的采集进程可以流式接管 coreDump 数据，常用于大规模集群中的故障采集代理。</p>
+<h3 id="2-2-配置矩阵：环境变量-vs-Driver-API"><a href="#2-2-配置矩阵：环境变量-vs-Driver-API" class="headerlink" title="2.2 配置矩阵：环境变量 vs Driver API"></a>2.2 配置矩阵：环境变量 vs Driver API</h3><p>CUDA 给了两种配置入口，本质是同一套属性集合的两种写入方式：</p>
+<p><strong>（1）环境变量方式（最常用）</strong></p>
+<table>
+<thead>
+<tr>
+<th>环境变量</th>
+<th>作用</th>
+<th>默认值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>CUDA_ENABLE_COREDUMP_ON_EXCEPTION</code></td>
+<td>异常时是否生成 GPU coreDump</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>CUDA_ENABLE_CPU_COREDUMP_ON_EXCEPTION</code></td>
+<td>同时生成 CPU core dump</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>CUDA_ENABLE_LIGHTWEIGHT_COREDUMP</code></td>
+<td>轻量级（跳过大块内存）</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>CUDA_COREDUMP_FILE</code></td>
+<td>自定义文件名</td>
+<td><code>core.cuda.HOSTNAME.PID</code></td>
+</tr>
+<tr>
+<td><code>CUDA_COREDUMP_PIPE</code></td>
+<td>命名管道路径（流式）</td>
+<td>未设置</td>
+</tr>
+</tbody></table>
+<p><strong>（2）Driver API 方式（CUDA 12.1+ 引入）</strong></p>
+<p>为了让应用程序能动态控制 coreDump 行为（而不是依赖部署时设环境变量），CUDA 12.1 在 Driver API 里加了一组 <code>cuCoredump*</code> 函数，对应的 <code>CUcoredumpSettings</code> 枚举：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">enum</span> <span class="title">CUcoredumpSettings</span> &#123;</span></span><br><span class="line">    CU_COREDUMP_ENABLE_ON_EXCEPTION = <span class="number">1</span>,</span><br><span class="line">    CU_COREDUMP_TRIGGER_HOST,</span><br><span class="line">    CU_COREDUMP_LIGHTWEIGHT,</span><br><span class="line">    CU_COREDUMP_ENABLE_USER_TRIGGER,</span><br><span class="line">    CU_COREDUMP_FILE,           <span class="comment">// 字符串，最长 1023 字节</span></span><br><span class="line">    CU_COREDUMP_PIPE,           <span class="comment">// 字符串，最长 1023 字节</span></span><br><span class="line">    CU_COREDUMP_GENERATION_FLAGS,</span><br><span class="line">    CU_COREDUMP_MAX</span><br><span class="line">&#125; CUcoredumpSettings;</span><br></pre></td></tr></table></figure>
+
+<p>读取和设置的核心 API：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">CUresult <span class="title function_">cuCoredumpGetAttribute</span><span class="params">(CUcoredumpSettings attr,</span></span><br><span class="line"><span class="params">                                 <span class="type">void</span>* value, <span class="type">size_t</span>* size)</span>;          <span class="comment">// 当前 context</span></span><br><span class="line">CUresult <span class="title function_">cuCoredumpGetAttributeGlobal</span><span class="params">(CUcoredumpSettings attr,</span></span><br><span class="line"><span class="params">                                       <span class="type">void</span>* value, <span class="type">size_t</span>* size)</span>;    <span class="comment">// 全应用</span></span><br><span class="line">CUresult <span class="title function_">cuCoredumpSetAttribute</span><span class="params">(CUcoredumpSettings attr,</span></span><br><span class="line"><span class="params">                                 <span class="type">void</span>* value, <span class="type">size_t</span>* size)</span>;          <span class="comment">// 当前 context</span></span><br><span class="line">CUresult <span class="title function_">cuCoredumpSetAttributeGlobal</span><span class="params">(CUcoredumpSettings attr,</span></span><br><span class="line"><span class="params">                                       <span class="type">void</span>* value, <span class="type">size_t</span>* size)</span>;    <span class="comment">// 全应用</span></span><br></pre></td></tr></table></figure>
+
+<p>注意区分两个作用域：</p>
+<ul>
+<li><strong>per-context</strong>：仅对当前 CUDA context 生效，多个 GPU 各自独立配置；</li>
+<li><strong>application-global</strong>：对整个进程所有 context 生效，通常用于初始化阶段一次性配置。</li>
+</ul>
+<h3 id="2-3-生成内容控制：CUCoredumpGenerationFlags"><a href="#2-3-生成内容控制：CUCoredumpGenerationFlags" class="headerlink" title="2.3 生成内容控制：CUCoredumpGenerationFlags"></a>2.3 生成内容控制：CUCoredumpGenerationFlags</h3><p>完整 coreDump 可能包含数 GB 的设备内存，生产环境很难接受。<code>CU_COREDUMP_GENERATION_FLAGS</code> 用位掩码控制要跳过哪些段：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">enum</span> <span class="title">CUCoredumpGenerationFlags</span> &#123;</span></span><br><span class="line">    CU_COREDUMP_DEFAULT_FLAGS                  = <span class="number">0</span>,</span><br><span class="line">    CU_COREDUMP_SKIP_NONRELOCATED_ELF_IMAGES   = (<span class="number">1</span> &lt;&lt; <span class="number">0</span>),</span><br><span class="line">    CU_COREDUMP_SKIP_GLOBAL_MEMORY             = (<span class="number">1</span> &lt;&lt; <span class="number">1</span>),</span><br><span class="line">    CU_COREDUMP_SKIP_SHARED_MEMORY              = (<span class="number">1</span> &lt;&lt; <span class="number">2</span>),</span><br><span class="line">    CU_COREDUMP_SKIP_LOCAL_MEMORY               = (<span class="number">1</span> &lt;&lt; <span class="number">3</span>),</span><br><span class="line">    CU_COREDUMP_SKIP_ABORT                      = (<span class="number">1</span> &lt;&lt; <span class="number">4</span>),</span><br><span class="line">    CU_COREDUMP_SKIP_CONSTBANK_MEMORY           = (<span class="number">1</span> &lt;&lt; <span class="number">5</span>),</span><br><span class="line">    CU_COREDUMP_GZIP_COMPRESS                   = (<span class="number">1</span> &lt;&lt; <span class="number">6</span>),</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 轻量级等价组合</span></span><br><span class="line">    CU_COREDUMP_LIGHTWEIGHT_FLAGS =</span><br><span class="line">          CU_COREDUMP_SKIP_NONRELOCATED_ELF_IMAGES</span><br><span class="line">        | CU_COREDUMP_SKIP_GLOBAL_MEMORY</span><br><span class="line">        | CU_COREDUMP_SKIP_SHARED_MEMORY</span><br><span class="line">        | CU_COREDUMP_SKIP_LOCAL_MEMORY</span><br><span class="line">        | CU_COREDUMP_SKIP_CONSTBANK_MEMORY,</span><br><span class="line">&#125; CUCoredumpGenerationFlags;</span><br></pre></td></tr></table></figure>
+
+<p><code>CU_COREDUMP_LIGHTWEIGHT</code> 环境变量等价于 <code>CU_COREDUMP_LIGHTWEIGHT_FLAGS</code>——只保留寄存器、warp 调度状态、异常信息等”事故现场”，跳过大块数据。它的体积通常能压到完整转储的 1&#x2F;100 以下，是线上排查的首选。</p>
+<p><code>CU_COREDUMP_GZIP_COMPRESS</code>（位 6）会在生成时直接 gzip 压缩，进一步减小体积，适合跨节点归档。</p>
+<h3 id="2-4-回调机制：让外挂程序感知"><a href="#2-4-回调机制：让外挂程序感知" class="headerlink" title="2.4 回调机制：让外挂程序感知"></a>2.4 回调机制：让外挂程序感知</h3><p>CUDA 12.1+ 还提供了两个回调注册点，让你能在 coreDump 开始&#x2F;结束时被通知：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="type">void</span>* CUcoredumpCallbackHandle;</span><br><span class="line"></span><br><span class="line"><span class="keyword">typedef</span> <span class="title function_">void</span> <span class="params">(CUDA_CB *CUcoredumpStatusCallback)</span><span class="params">(</span></span><br><span class="line"><span class="params">    <span class="type">void</span>*      userData,</span></span><br><span class="line"><span class="params">    <span class="type">int</span>        pid,</span></span><br><span class="line"><span class="params">    CUdevice   dev)</span>;</span><br><span class="line"></span><br><span class="line">CUresult <span class="title function_">cuCoredumpRegisterStartCallback</span><span class="params">(</span></span><br><span class="line"><span class="params">    CUcoredumpStatusCallback  callback,</span></span><br><span class="line"><span class="params">    <span class="type">void</span>*                     userData,</span></span><br><span class="line"><span class="params">    CUcoredumpCallbackHandle* callbackOut)</span>;</span><br><span class="line"></span><br><span class="line">CUresult <span class="title function_">cuCoredumpRegisterCompleteCallback</span><span class="params">(</span></span><br><span class="line"><span class="params">    CUcoredumpStatusCallback  callback,</span></span><br><span class="line"><span class="params">    <span class="type">void</span>*                     userData,</span></span><br><span class="line"><span class="params">    CUcoredumpCallbackHandle* callbackOut)</span>;</span><br><span class="line"></span><br><span class="line">CUresult <span class="title function_">cuCoredumpDeregisterStartCallback</span><span class="params">(CUcoredumpCallbackHandle)</span>;</span><br><span class="line">CUresult <span class="title function_">cuCoredumpDeregisterCompleteCallback</span><span class="params">(CUcoredumpCallbackHandle)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>典型用途：</p>
+<ul>
+<li><strong>Start 回调</strong>：coreDump 即将开始，可以记录”此刻在跑哪个 kernel、用户参数是什么”；</li>
+<li><strong>Complete 回调</strong>：coreDump 落地完成，可以触发上传到对象存储、通知运维系统、释放相关资源。</li>
+</ul>
+<p>回调拿到的是 <code>pid</code> 和 <code>CUdevice</code>，刚好对应”哪个进程的哪张卡出了事”。</p>
+<h2 id="三、coreDump-文件格式：为什么是-ELF"><a href="#三、coreDump-文件格式：为什么是-ELF" class="headerlink" title="三、coreDump 文件格式：为什么是 ELF"></a>三、coreDump 文件格式：为什么是 ELF</h2><h3 id="3-1-ELF-选择的合理性"><a href="#3-1-ELF-选择的合理性" class="headerlink" title="3.1 ELF 选择的合理性"></a>3.1 ELF 选择的合理性</h3><p>NVIDIA 把 GPU coreDump 的容器格式选成了 <strong>ELF64</strong>，而不是自定义格式或 Linux 原生 core 格式。原因有三：</p>
+<ol>
+<li><strong>cubin 本身就是 ELF</strong>：CUDA 编译器（<code>nvcc</code>&#x2F;<code>ptxas</code>）产出的 GPU 可执行码（cubin）就是标准 ELF64 文件，<code>e_machine = EM_CUDA (0xBE = 190)</code>、<code>EI_OSABI = 0x41 (CUDA ABI)</code>。把 coreDump 也做成 ELF，可以用同一套工具链解析。</li>
+<li>**ELF 的 section 机制天然适合装”多段异构数据”**：寄存器、warp 状态、设备内存、cubin 镜像、DWARF 调试信息，每类放进一个独立 section，互不干扰。</li>
+<li><strong>复用成熟生态</strong>：<code>readelf</code>、<code>objdump</code>、<code>binutils</code>、GDB 自带的 ELF 解析器都能直接读 coreDump 容器，不用造新轮子。</li>
+</ol>
+<h3 id="3-2-cubin-ELF-的关键字段"><a href="#3-2-cubin-ELF-的关键字段" class="headerlink" title="3.2 cubin ELF 的关键字段"></a>3.2 cubin ELF 的关键字段</h3><p>理解 GPU coreDump 的内部结构，先得理解它要”装”的 cubin 长什么样。一个单 kernel 的 cubin 大致包含这些 section（参见 <a target="_blank" rel="noopener" href="https://hiraditya.github.io/posts/anatomy-of-a-cuda-binary/">Anatomy of a CUDA Binary</a>）：</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>类型</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>.text.&lt;kernel&gt;</code></td>
+<td><code>SHT_PROGBITS</code></td>
+<td>SASS 机器码（每条指令 128-bit&#x2F;16 字节）</td>
+</tr>
+<tr>
+<td><code>.nv.constant0.&lt;kernel&gt;</code></td>
+<td><code>SHT_PROGBITS</code></td>
+<td>常量 bank 0，kernel 参数通过它传递</td>
+</tr>
+<tr>
+<td><code>.nv.info</code></td>
+<td><code>SHT_LOPROC</code></td>
+<td>模块级 metadata（EIATTR 流）</td>
+</tr>
+<tr>
+<td><code>.nv.info.&lt;kernel&gt;</code></td>
+<td><code>SHT_LOPROC</code></td>
+<td>每个 kernel 的 metadata</td>
+</tr>
+<tr>
+<td><code>.note.nv.cuver</code></td>
+<td><code>SHT_NOTE</code></td>
+<td>CUDA 版本信息</td>
+</tr>
+<tr>
+<td><code>.note.nv.tkinfo</code></td>
+<td><code>SHT_NOTE</code></td>
+<td>Toolkit 版本信息</td>
+</tr>
+<tr>
+<td><code>.nv.compat</code></td>
+<td>自定义</td>
+<td>SM 兼容性描述</td>
+</tr>
+<tr>
+<td><code>.nv.callgraph</code></td>
+<td>自定义</td>
+<td>模块内调用图</td>
+</tr>
+<tr>
+<td><code>.symtab</code> &#x2F; <code>.strtab</code> &#x2F; <code>.shstrtab</code></td>
+<td>标准 ELF</td>
+<td>符号表&#x2F;字符串表</td>
+</tr>
+</tbody></table>
+<p>ELF header 里几个关键字段：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">e_ident[EI_OSABI]    = 0x41   // CUDA ABI（老版本是 0x33）</span><br><span class="line">e_ident[EI_ABIVERSION] = 8</span><br><span class="line">e_type               = ET_EXEC</span><br><span class="line">e_machine            = 0xBE  // EM_CUDA = 190</span><br><span class="line">e_flags              = 0x06006402  // bits 8-15 = SM 架构（0x64 = 100 = sm_100）</span><br><span class="line">                                   // bit 1 = 64-bit addressing</span><br><span class="line">                                   // bits 24-26 = 格式版本</span><br></pre></td></tr></table></figure>
+
+<p><code>e_flags</code> 高位编码 SM 架构，这是驱动加载 cubin 时用来校验”这个 cubin 是给哪一代 GPU 编的”的关键。CUDA 13 的驱动甚至会拒绝旧版 <code>ELFOSABI_CUDA = 0x33</code> 的 cubin，<code>cuModuleGetFunction</code> 直接返回 <code>CUDA_ERROR_NOT_SUPPORTED</code>。</p>
+<h3 id="3-3-coreDump-ELF-额外塞了什么"><a href="#3-3-coreDump-ELF-额外塞了什么" class="headerlink" title="3.3 coreDump ELF 额外塞了什么"></a>3.3 coreDump ELF 额外塞了什么</h3><p>GPU coreDump 复用 cubin 的 ELF 容器，但额外塞进了”事故现场”的 section：</p>
+<ul>
+<li><strong>设备内存 dump</strong>：global memory、shared memory、local memory、constant bank memory 的内容（除非被 <code>SKIP_*</code> flag 跳过）；</li>
+<li><strong>warp&#x2F;线程上下文</strong>：当前活跃 warp 的寄存器值、调度状态、PC；</li>
+<li><strong>异常信息</strong>：触发的异常类型、触发的 warp、触发的指令地址（参见 CUDA 12.3 修复的 SIGTRAP 显示问题）；</li>
+<li><strong>加载的 cubin 镜像</strong>：异常时已加载到 GPU 上的 cubin 副本（除非 <code>SKIP_NONRELOCATED_ELF_IMAGES</code>）；</li>
+<li><strong>DWARF 调试信息</strong>：如果 kernel 用 <code>-G</code> 编译，调试信息会嵌入，供 <code>cuda-gdb</code> 做源码级回溯。</li>
+</ul>
+<p>加载到调试器时，<code>cuda-gdb</code> 用专门的 target：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(cuda-gdb) target cudacore core.cuda.localhost.1234</span><br></pre></td></tr></table></figure>
+
+<p>这条命令告诉 GDB 后端”这不是普通 core 文件，是 CUDA core dump”，然后会按 ELF 解析出 GPU 段、按 DWARF 还原源码位置、按 cubin 符号表把寄存器映射到变量。</p>
+<h2 id="四、AMD-GPU-coreDump-的不同走法"><a href="#四、AMD-GPU-coreDump-的不同走法" class="headerlink" title="四、AMD GPU coreDump 的不同走法"></a>四、AMD GPU coreDump 的不同走法</h2><p>AMD 在 ROCm 体系里也实现了 GPU coreDump，但架构和 NVIDIA 有明显差异。</p>
+<h3 id="4-1-谁来生成"><a href="#4-1-谁来生成" class="headerlink" title="4.1 谁来生成"></a>4.1 谁来生成</h3><p>NVIDIA 是 GPU 驱动 + CUDA runtime 一起干，AMD 则主要交给 <strong>ROCr Runtime</strong>（用户态 runtime，对应 <code>libhsa-runtime</code>）在 GPU 异常时生成。这带来一个差异：</p>
+<blockquote>
+<p><strong>重要约束</strong>：如果 host 端先发生了 fault 并触发了 Linux 内核的 core dump，AMD ROCm runtime 就<strong>不会</strong>再生成 AMD GPU core 文件——整个进程只拿到 host 侧的 core。要让 GPU 端被捕获，必须保证进程没被内核提前终结。</p>
+</blockquote>
+<h3 id="4-2-加载方式：ROCgdb"><a href="#4-2-加载方式：ROCgdb" class="headerlink" title="4.2 加载方式：ROCgdb"></a>4.2 加载方式：ROCgdb</h3><p>AMD 的 GPU 调试器叫 <a target="_blank" rel="noopener" href="https://rocm.docs.amd.com/projects/ROCgdb/">ROCgdb</a>（GDB 的 AMD GPU 扩展）。加载 core dump 的方式和 GDB 标准用法一致：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">rocgdb ./a.out core</span><br><span class="line"><span class="comment"># 或在 GDB 内</span></span><br><span class="line">(gdb) core-file core</span><br></pre></td></tr></table></figure>
+
+<p>AMD 的 cubin 也是 ELF，但 <code>e_machine</code> 是 <code>EM_AMDGPU (0xE0 = 224)</code>，section 命名规则和 NVIDIA 不同（没有 <code>.nv.*</code> 前缀，而是用 LLVM AMDGPU Backend 的约定）。</p>
+<h3 id="4-3-架构限制"><a href="#4-3-架构限制" class="headerlink" title="4.3 架构限制"></a>4.3 架构限制</h3><p>不是所有 AMD GPU 都支持 coreDump。当前 <a target="_blank" rel="noopener" href="https://rocm.docs.amd.com/projects/ROCgdb/">ROCgdb 文档</a> 明确说明：</p>
+<ul>
+<li><code>gfx1100</code> &#x2F; <code>gfx1101</code> &#x2F; <code>gfx1102</code>（RDNA3 消费卡）<strong>不能</strong>生成 AMD GPU core dump；</li>
+<li>数据中心卡（MI100&#x2F;MI200&#x2F;MI300 系列，对应 <code>gfx908/gfx90a/gfx942</code> 等）支持最完整；</li>
+<li>新版本 ROCr 修复了一个问题：即使有调试器 attached，runtime 也能从自己的内部状态捕获触发异常并生成合法 core dump（以前 attached 时不行）。</li>
+</ul>
+<p>选择生态时要留意：消费级 AMD 显卡的 GPU coreDump 能力是残缺的。</p>
+<h2 id="五、驱动层与-Xid：coreDump-的上游"><a href="#五、驱动层与-Xid：coreDump-的上游" class="headerlink" title="五、驱动层与 Xid：coreDump 的上游"></a>五、驱动层与 Xid：coreDump 的上游</h2><p>GPU coreDump 不会凭空触发，背后是 GPU 驱动对硬件异常的捕获。NVIDIA 把这些异常用 <strong>Xid</strong> 编码报告给系统。</p>
+<h3 id="5-1-Xid-是什么"><a href="#5-1-Xid-是什么" class="headerlink" title="5.1 Xid 是什么"></a>5.1 Xid 是什么</h3><p><a target="_blank" rel="noopener" href="https://docs.nvidia.com/deploy/xid-errors/">Xid Errors</a> 是 NVIDIA 驱动向 OS 内核日志报告 GPU 错误的标准机制，格式形如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">NVRM: Xid (0000:03:00): 13, Channel 00000001</span><br><span class="line">       │           │       │</span><br><span class="line">       │           │       └── Xid 编号（决定错误类型）</span><br><span class="line">       │           └── PCI BDF（定位是哪张卡）</span><br><span class="line">       └── 驱动标识</span><br></pre></td></tr></table></figure>
+
+<p>Linux 下查看：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">sudo dmesg | grep -i NVRM         <span class="comment"># 所有 NVRM 消息</span></span><br><span class="line">sudo dmesg | grep -i <span class="string">&quot;Xid&quot;</span>        <span class="comment"># 仅 Xid</span></span><br></pre></td></tr></table></figure>
+
+<p>每个 Xid 编号对应一类错误，含义跨驱动版本稳定。Xid 的位置在 <code>/var/log/messages</code> 或 <code>/var/log/syslog</code>（视发行版而定），systemd 系统主要看 <code>journalctl -k</code>。</p>
+<h3 id="5-2-哪些-Xid-会触发-coreDump"><a href="#5-2-哪些-Xid-会触发-coreDump" class="headerlink" title="5.2 哪些 Xid 会触发 coreDump"></a>5.2 哪些 Xid 会触发 coreDump</h3><p>不是所有 Xid 都对应”可调试的应用异常”。和 coreDump 关系最密切的几类：</p>
+<table>
+<thead>
+<tr>
+<th>Xid</th>
+<th>含义</th>
+<th>是否触发 coreDump</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>13</td>
+<td>Graphics Engine Exception（图形引擎异常，多为应用非法访问&#x2F;非法指令）</td>
+<td><strong>是</strong>，最典型的 coreDump 触发源</td>
+</tr>
+<tr>
+<td>31</td>
+<td>GPU memory page fault（GPU 内存页错误）</td>
+<td><strong>是</strong>，常对应越界访问</td>
+</tr>
+<tr>
+<td>8</td>
+<td>GPU stopped processing（FIFO idle timeout）</td>
+<td>可能，视配置</td>
+</tr>
+<tr>
+<td>43</td>
+<td>ForceRecovery（驱动强制重置 GPU）</td>
+<td>否，但会终止上下文</td>
+</tr>
+<tr>
+<td>48</td>
+<td>ECC error（双位 ECC 不可纠正）</td>
+<td>否，硬件错误</td>
+</tr>
+<tr>
+<td>79</td>
+<td>GPU has fallen off the bus</td>
+<td>否，硬件掉线</td>
+</tr>
+<tr>
+<td>119</td>
+<td>GSP RPC timeout</td>
+<td>否，驱动自身问题</td>
+</tr>
+<tr>
+<td>154</td>
+<td>GPU Recovery Action</td>
+<td>否，但会清理现场</td>
+</tr>
+</tbody></table>
+<p>官方推荐排查思路：</p>
+<blockquote>
+<p>应用程序问题（Xid 13&#x2F;31）→ 跑 <code>cuda-gdb</code> 或 Compute Sanitizer memcheck；<br>硬件问题（Xid 48&#x2F;79）→ 联系硬件厂商跑诊断；<br>驱动问题（Xid 119 等）→ 用 <code>nvidia-bug-report.sh</code> 收集日志报 NVIDIA。</p>
+</blockquote>
+<h3 id="5-3-故障排查链路"><a href="#5-3-故障排查链路" class="headerlink" title="5.3 故障排查链路"></a>5.3 故障排查链路</h3><p>把 Xid、coreDump、调试器串起来，一条完整的 GPU 事故排查链路是这样的：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">GPU 硬件异常</span><br><span class="line">     │</span><br><span class="line">     ▼</span><br><span class="line">驱动捕获异常 → 写入 Xid 到内核日志</span><br><span class="line">     │</span><br><span class="line">     ▼</span><br><span class="line">用户态 runtime 检测到 context 异常</span><br><span class="line">     │</span><br><span class="line">     ├─ 若 CUDA_ENABLE_COREDUMP_ON_EXCEPTION=1</span><br><span class="line">     │     │</span><br><span class="line">     │     ▼</span><br><span class="line">     │  驱动+runtime 生成 core.cuda.HOSTNAME.PID（ELF 容器）</span><br><span class="line">     │     │</span><br><span class="line">     │     ├─ 调用 Start 回调（如果有）</span><br><span class="line">     │     ├─ 收集设备内存/warp 状态/cubin 镜像</span><br><span class="line">     │     ├─ 可选 gzip 压缩</span><br><span class="line">     │     └─ 调用 Complete 回调</span><br><span class="line">     │</span><br><span class="line">     ▼</span><br><span class="line">事后调试：</span><br><span class="line">$ cuda-gdb ./myapp</span><br><span class="line">(cuda-gdb) target cudacore core.cuda.myhost.12345</span><br><span class="line">(cuda-gdb) bt            # 栈回溯</span><br><span class="line">(cuda-gdb) info cuda threads</span><br><span class="line">(cuda-gdb) print some_var</span><br></pre></td></tr></table></figure>
+
+<p>如果跑的是大规模集群，常见做法是：</p>
+<ol>
+<li>全局打开 <code>CUDA_ENABLE_LIGHTWEIGHT_COREDUMP=1</code> + <code>CUDA_COREDUMP_FILE=/var/log/gpudump/core.%h.%p</code>；</li>
+<li>监控 <code>dmesg</code> 里的 Xid，一旦出现 13&#x2F;31，立即捞取最近一次 coreDump；</li>
+<li>Complete 回调里把 coreDump 上传到对象存储，附带 Xid 编号和 GPU GUID。</li>
+</ol>
+<h2 id="六、实战：从触发到加载"><a href="#六、实战：从触发到加载" class="headerlink" title="六、实战：从触发到加载"></a>六、实战：从触发到加载</h2><h3 id="6-1-环境变量方式（最简）"><a href="#6-1-环境变量方式（最简）" class="headerlink" title="6.1 环境变量方式（最简）"></a>6.1 环境变量方式（最简）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 开异常触发 + 轻量级 + 自定义路径</span></span><br><span class="line"><span class="built_in">export</span> CUDA_ENABLE_COREDUMP_ON_EXCEPTION=1</span><br><span class="line"><span class="built_in">export</span> CUDA_ENABLE_LIGHTWEIGHT_COREDUMP=1</span><br><span class="line"><span class="built_in">export</span> CUDA_COREDUMP_FILE=/var/log/gpudump/core.%h.%p</span><br><span class="line"></span><br><span class="line"><span class="comment"># 跑一个会越界的 kernel</span></span><br><span class="line">./bad_kernel</span><br><span class="line"><span class="comment"># ls /var/log/gpudump/</span></span><br><span class="line"><span class="comment"># core.myhost.12345</span></span><br></pre></td></tr></table></figure>
+
+<p>加载：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">cuda-gdb ./bad_kernel</span><br><span class="line">(cuda-gdb) target cudacore /var/log/gpudump/core.myhost.12345</span><br><span class="line">(cuda-gdb) bt</span><br><span class="line">(cuda-gdb) info cuda kernels</span><br><span class="line">(cuda-gdb) info cuda threads</span><br><span class="line">(cuda-gdb) <span class="built_in">print</span> *(int*)devPtr</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-2-Driver-API-方式（应用内控）"><a href="#6-2-Driver-API-方式（应用内控）" class="headerlink" title="6.2 Driver API 方式（应用内控）"></a>6.2 Driver API 方式（应用内控）</h3><p>如果应用需要在特定条件下主动触发 coreDump（而不是等异常），用 Driver API 更可控：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cuda.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">void</span> <span class="title function_">on_coredump_complete</span><span class="params">(<span class="type">void</span>* userData, <span class="type">int</span> pid, CUdevice dev)</span> &#123;</span><br><span class="line">    <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;[coredump] pid=%d dev=%d done\n&quot;</span>, pid, dev);</span><br><span class="line">    <span class="comment">/* 在这里上传到对象存储 / 通知监控 */</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">void</span> <span class="title function_">enable_coredump</span><span class="params">(<span class="type">void</span>)</span> &#123;</span><br><span class="line">    <span class="type">int</span> enable = <span class="number">1</span>;</span><br><span class="line">    cuCoredumpSetAttributeGlobal(CU_COREDUMP_ENABLE_ON_EXCEPTION, &amp;enable, <span class="keyword">sizeof</span>(enable));</span><br><span class="line">    cuCoredumpSetAttributeGlobal(CU_COREDUMP_ENABLE_USER_TRIGGER,  &amp;enable, <span class="keyword">sizeof</span>(enable));</span><br><span class="line"></span><br><span class="line">    <span class="comment">/* 轻量级 + 压缩 */</span></span><br><span class="line">    <span class="type">unsigned</span> flags = CU_COREDUMP_LIGHTWEIGHT_FLAGS | CU_COREDUMP_GZIP_COMPRESS;</span><br><span class="line">    cuCoredumpSetAttributeGlobal(CU_COREDUMP_GENERATION_FLAGS, &amp;flags, <span class="keyword">sizeof</span>(flags));</span><br><span class="line"></span><br><span class="line">    <span class="comment">/* 注册完成回调 */</span></span><br><span class="line">    CUcoredumpCallbackHandle h;</span><br><span class="line">    cuCoredumpRegisterCompleteCallback(on_coredump_complete, <span class="literal">NULL</span>, &amp;h);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">void</span> <span class="title function_">dump_now</span><span class="params">(<span class="type">void</span>)</span> &#123;</span><br><span class="line">    <span class="comment">/* 主动触发当前 context 的 coreDump */</span></span><br><span class="line">    cuCoredumpGenerate();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>注意：<code>cuCoredumpGenerate</code> 是 user-trigger 模式的入口，必须在已经 enable <code>CU_COREDUMP_ENABLE_USER_TRIGGER</code> 之后调用，且当前线程必须有 active CUDA context。</p>
+</blockquote>
+<h3 id="6-3-用命名管道做流式采集（CUDA-12-3-）"><a href="#6-3-用命名管道做流式采集（CUDA-12-3-）" class="headerlink" title="6.3 用命名管道做流式采集（CUDA 12.3+）"></a>6.3 用命名管道做流式采集（CUDA 12.3+）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 先建 FIFO</span></span><br><span class="line"><span class="built_in">mkfifo</span> /var/run/gpu_coredump.fifo</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 让采集进程持续消费</span></span><br><span class="line"><span class="keyword">while</span> <span class="literal">true</span>; <span class="keyword">do</span></span><br><span class="line">    <span class="built_in">cat</span> /var/run/gpu_coredump.fifo &gt;&gt; /storage/gpu_dumps/$(<span class="built_in">date</span> +%s).core.gz</span><br><span class="line"><span class="keyword">done</span> &amp;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 应用端指向 FIFO</span></span><br><span class="line"><span class="built_in">export</span> CUDA_COREDUMP_PIPE=/var/run/gpu_coredump.fifo</span><br><span class="line"><span class="built_in">export</span> CUDA_ENABLE_COREDUMP_ON_EXCEPTION=1</span><br><span class="line">./myapp</span><br></pre></td></tr></table></figure>
+
+<p>coreDump 数据会以流的方式写到 FIFO，被采集进程接走，不会在本地落盘。这对容器化部署非常友好——容器内没多少磁盘，coreDump 直接流到宿主机的归档进程。</p>
+<h2 id="七、最佳实践与坑点"><a href="#七、最佳实践与坑点" class="headerlink" title="七、最佳实践与坑点"></a>七、最佳实践与坑点</h2><p><strong>（1）开轻量级而不是完整</strong></p>
+<p>线上别开完整 coreDump。一个 H100 有 80GB HBM，一个 coreDump 可能就 80GB，加上多卡场景直接打爆磁盘。<code>CUDA_ENABLE_LIGHTWEIGHT_COREDUMP=1</code> 是默认推荐，遇到疑难问题再单次开完整。</p>
+<p><strong>（2）<code>-lineinfo</code> 和 <code>-G</code> 的区别要分清</strong></p>
+<ul>
+<li><code>-lineinfo</code>：只保留行号映射，体积小，性能影响小，足够做栈回溯；</li>
+<li><code>-G</code>：完整调试信息，能查变量值，但性能下降明显，且让 cubin 显著变大。</li>
+</ul>
+<p>线上构建用 <code>-lineinfo</code>，本地复现用 <code>-G</code>。<code>cuda-gdb</code> 加载 coreDump 时，如果原始 cubin 没有任何调试信息，栈回溯只会显示地址，不会映射到源码行号。</p>
+<p><strong>（3）AMD 平台注意 host 先挂的情况</strong></p>
+<p>ROCm 的 GPU coreDump 强依赖 runtime 自己捕获异常。如果 host 端先 <code>SIGSEGV</code>，Linux 内核直接走 <code>core</code> 流程把进程终结，runtime 没机会生成 GPU core。规避办法是把容易挂的 host 代码用 <code>setjmp</code>&#x2F;<code>longjmp</code> 或信号处理拦截，给 runtime 留出时间。</p>
+<p><strong>（4）coreDump 文件权限</strong></p>
+<p>CUDA coreDump 默认写到进程当前目录，权限是运行用户的 <code>umask</code> 决定。如果用 systemd 跑服务，注意 <code>WorkingDirectory=</code> 和 <code>ReadWritePaths=</code> 必须包含目标路径，否则会看到 coreDump 生成失败但 GPU 异常已经吃掉了现场。</p>
+<p><strong>（5）MPS 场景的传染性</strong></p>
+<p>在 Volta-MPS 下，一个 client 触发 coreDump，<strong>所有其他 client 都会受影响</strong>——因为它们共享同一个 GPU context。生产环境用 MPS 时，coreDump 策略要在 client 隔离层制定，而不是简单全局打开。</p>
+<p><strong>（6）Xid 13 不一定是应用 bug</strong></p>
+<p>Xid 13 官方定义虽然是 “Graphics Engine Exception”，但文档同时提到”罕见情况下，硬件故障或系统软件 bug 也会表现为 Xid 13”。所以看到 Xid 13 + coreDump 后，如果 <code>cuda-gdb</code> 加载发现现场是合法代码，要怀疑硬件&#x2F;驱动问题，直接用 <code>nvidia-bug-report.sh</code> 收集日志报 NVIDIA，而不是继续啃应用代码。</p>
+<h2 id="八、小结"><a href="#八、小结" class="headerlink" title="八、小结"></a>八、小结</h2><p>GPU coreDump 的实现原理可以浓缩成一句话：</p>
+<blockquote>
+<p>GPU 驱动 + runtime 在异常或主动触发时，把 GPU 的设备内存、warp 上下文、已加载的 cubin 镜像按 ELF 容器格式快照成文件，供 <code>cuda-gdb</code> &#x2F; <code>rocgdb</code> 做源码级事后调试。</p>
+</blockquote>
+<p>几个关键设计选择值得记住：</p>
+<ul>
+<li><strong>ELF 容器</strong>：让 GPU coreDump 和 cubin 共用一套工具链，<code>readelf</code>&#x2F;<code>objdump</code> 都能读；</li>
+<li><strong>分层触发</strong>：异常被动 + 用户主动 + host 联动 + 管道流式，覆盖从开发到生产的不同需求；</li>
+<li><strong>轻量级 + 压缩</strong>：<code>CU_COREDUMP_LIGHTWEIGHT_FLAGS | CU_COREDUMP_GZIP_COMPRESS</code> 是生产环境的默认组合；</li>
+<li><strong>回调机制</strong>：Start&#x2F;Complete 回调让 coreDump 能接入企业的可观测体系；</li>
+<li><strong>Xid 是上游</strong>：coreDump 是事故现场，Xid 是事故编码，两者配套使用才能完整还原事故。</li>
+</ul>
+<p>把 GPU coreDump 用好，等于把 GPU 程序的”事后可调试性”提升一个量级。下一篇会讲 <code>cuda-gdb</code> 在加载 coreDump 后的具体调试命令组合，把这套机制用起来。</p>
+<h2 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h2><ul>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-gdb/">CUDA-GDB User Manual</a> — GPU core dump 支持与 <code>target cudacore</code> 用法</li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__COREDUMP.html">CUDA Driver API: Coredump Attributes Control API</a> — <code>cuCoredump*</code> 系列函数与 <code>CUcoredumpSettings</code> 枚举</li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/deploy/xid-errors/">Xid Errors</a> — Xid 编号含义与排查指南</li>
+<li><a target="_blank" rel="noopener" href="https://rocm.docs.amd.com/projects/ROCgdb/">ROCgdb Documentation</a> — AMD GPU core dump 支持与限制</li>
+<li><a target="_blank" rel="noopener" href="https://hiraditya.github.io/posts/anatomy-of-a-cuda-binary/">Anatomy of a CUDA Binary</a> — cubin ELF section 布局分析</li>
+<li><a target="_blank" rel="noopener" href="https://zenodo.org/record/2339027">Decoding CUDA Binary File Format</a> — cubin ELF 字段逆向</li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>Author: </span><span class="post-copyright-info"><a href="http://example.com">KernelDriver</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>Link: </span><span class="post-copyright-info"><a href="http://example.com/2026/09/20/GPU-coreDump-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/">http://example.com/2026/09/20/GPU-coreDump-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>Copyright Notice: </span><span class="post-copyright-info">All articles on this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless otherwise stated.</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/GPU/">GPU</a><a class="post-meta__tags" href="/tags/coreDump/">coreDump</a><a class="post-meta__tags" href="/tags/%E8%B0%83%E8%AF%95/">调试</a><a class="post-meta__tags" href="/tags/ELF/">ELF</a></div><div class="post-share"><div class="social-share" data-image="/img/butterfly-icon.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/09/18/AGENTS-md-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/" title="AGENTS.md 使用指南：给 AI Agent 看的 README，一份文件跨工具通用"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-right"><div class="info-1"><div class="info-item-1">Next</div><div class="info-item-2">AGENTS.md 使用指南：给 AI Agent 看的 README，一份文件跨工具通用</div></div><div class="info-2"><div class="info-item-1">用 AI 编程代理（Coding Agent）干活的人，大概率都被规则文件折磨过：Claude Code 读 CLAUDE.md，Cursor 读 .cursorrules，GitHub Copilot 读 .github/copilot-instructions.md，Cline 读 .clinerules，Gemini 读 GEMINI.md……同一个项目想让多个 AI 工具都听话，就得在仓库里维护好几份内容几乎一样的文件，还经常改漏。 AGENTS.md 就是为终结这种碎片化而来的：在仓库根目录放一个同名 Markdown 文件，把构建命令、测试方式、代码约定、禁区写清楚，任何支持该约定的代理动手改代码前都会先读它。官方对它的定位就一句话——README.md 是给人看的，AGENTS.md 是给 Agent 看的（见 agents.md 官网）。 本文讲清楚三件事：AGENTS.md 是什么、它的出处与归属、以及大家最关心的问题——一份 AGENTS.md 能不能被多个 AI Agent 同时使用（答案是：能，这正是它存在的意义）。 一、AGENTS.md 是什么根据官方...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>Related Articles</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2026/09/16/Cuda-GDB/" title="CUDA-GDB 使用指南：GPU Kernel Function 调试从入门到实践"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-16</div><div class="info-item-2">CUDA-GDB 使用指南：GPU Kernel Function 调试从入门到实践</div></div><div class="info-2"><div class="info-item-1">写 CUDA 代码最痛苦的莫过于——CPU 端跑得好好的，一到 GPU 上就段错误、结果不对或者干脆卡死，printf 大法既慢又难定位。cuda-gdb 是 NVIDIA 官方提供的 GPU 源码级调试器，基于 GDB 扩展，能让你像调 CPU 程序一样在 GPU 内核里打断点、单步、查看变量。这篇整理一下实际开发中常用的流程和命令（命令语法以 NVIDIA 官方 CUDA-GDB 手册为准）。 一、环境准备1.1 前置条件 安装 CUDA Toolkit（自带 cuda-gdb，不需要单独装） GPU 驱动版本 ≥ CUDA 版本对应要求 Linux 环境（cuda-gdb 对 Linux&#x2F;QNX 支持最完整，Windows 下功能有限） 编译时加 -G 选项生成调试信息（关键！）  1.2 验证安装12cuda-gdb --version# CUDA GDB release x.y.z  12nvidia-smi# 确认 GPU 可用、驱动版本匹配  1.3 编译带调试信息的 CUDA 代码1nvcc -G -g -O0 -o myapp myapp.cu    ...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/img/butterfly-icon.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">KernelDriver</div><div class="author-info-description">专注内核与GPU驱动开发，记录学习与实践</div><div class="site-data"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">7</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">20</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">4</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/KernelDriver-star"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>Announcement</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>Contents</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E5%85%88%E5%9B%9E%E7%AD%94%EF%BC%9AGPU-coreDump-%E5%88%B0%E5%BA%95%E6%98%AF%E4%BB%80%E4%B9%88"><span class="toc-number">1.</span> <span class="toc-text">一、先回答：GPU coreDump 到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81CUDA-coreDump-%E7%9A%84%E6%95%B4%E4%BD%93%E6%9E%B6%E6%9E%84"><span class="toc-number">2.</span> <span class="toc-text">二、CUDA coreDump 的整体架构</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-%E8%A7%A6%E5%8F%91%E8%B7%AF%E5%BE%84"><span class="toc-number">2.1.</span> <span class="toc-text">2.1 触发路径</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-%E9%85%8D%E7%BD%AE%E7%9F%A9%E9%98%B5%EF%BC%9A%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F-vs-Driver-API"><span class="toc-number">2.2.</span> <span class="toc-text">2.2 配置矩阵：环境变量 vs Driver API</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-%E7%94%9F%E6%88%90%E5%86%85%E5%AE%B9%E6%8E%A7%E5%88%B6%EF%BC%9ACUCoredumpGenerationFlags"><span class="toc-number">2.3.</span> <span class="toc-text">2.3 生成内容控制：CUCoredumpGenerationFlags</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-4-%E5%9B%9E%E8%B0%83%E6%9C%BA%E5%88%B6%EF%BC%9A%E8%AE%A9%E5%A4%96%E6%8C%82%E7%A8%8B%E5%BA%8F%E6%84%9F%E7%9F%A5"><span class="toc-number">2.4.</span> <span class="toc-text">2.4 回调机制：让外挂程序感知</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81coreDump-%E6%96%87%E4%BB%B6%E6%A0%BC%E5%BC%8F%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E6%98%AF-ELF"><span class="toc-number">3.</span> <span class="toc-text">三、coreDump 文件格式：为什么是 ELF</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-ELF-%E9%80%89%E6%8B%A9%E7%9A%84%E5%90%88%E7%90%86%E6%80%A7"><span class="toc-number">3.1.</span> <span class="toc-text">3.1 ELF 选择的合理性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-cubin-ELF-%E7%9A%84%E5%85%B3%E9%94%AE%E5%AD%97%E6%AE%B5"><span class="toc-number">3.2.</span> <span class="toc-text">3.2 cubin ELF 的关键字段</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-coreDump-ELF-%E9%A2%9D%E5%A4%96%E5%A1%9E%E4%BA%86%E4%BB%80%E4%B9%88"><span class="toc-number">3.3.</span> <span class="toc-text">3.3 coreDump ELF 额外塞了什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81AMD-GPU-coreDump-%E7%9A%84%E4%B8%8D%E5%90%8C%E8%B5%B0%E6%B3%95"><span class="toc-number">4.</span> <span class="toc-text">四、AMD GPU coreDump 的不同走法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-%E8%B0%81%E6%9D%A5%E7%94%9F%E6%88%90"><span class="toc-number">4.1.</span> <span class="toc-text">4.1 谁来生成</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-%E5%8A%A0%E8%BD%BD%E6%96%B9%E5%BC%8F%EF%BC%9AROCgdb"><span class="toc-number">4.2.</span> <span class="toc-text">4.2 加载方式：ROCgdb</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-%E6%9E%B6%E6%9E%84%E9%99%90%E5%88%B6"><span class="toc-number">4.3.</span> <span class="toc-text">4.3 架构限制</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E9%A9%B1%E5%8A%A8%E5%B1%82%E4%B8%8E-Xid%EF%BC%9AcoreDump-%E7%9A%84%E4%B8%8A%E6%B8%B8"><span class="toc-number">5.</span> <span class="toc-text">五、驱动层与 Xid：coreDump 的上游</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-Xid-%E6%98%AF%E4%BB%80%E4%B9%88"><span class="toc-number">5.1.</span> <span class="toc-text">5.1 Xid 是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-%E5%93%AA%E4%BA%9B-Xid-%E4%BC%9A%E8%A7%A6%E5%8F%91-coreDump"><span class="toc-number">5.2.</span> <span class="toc-text">5.2 哪些 Xid 会触发 coreDump</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-%E6%95%85%E9%9A%9C%E6%8E%92%E6%9F%A5%E9%93%BE%E8%B7%AF"><span class="toc-number">5.3.</span> <span class="toc-text">5.3 故障排查链路</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E5%AE%9E%E6%88%98%EF%BC%9A%E4%BB%8E%E8%A7%A6%E5%8F%91%E5%88%B0%E5%8A%A0%E8%BD%BD"><span class="toc-number">6.</span> <span class="toc-text">六、实战：从触发到加载</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-%E7%8E%AF%E5%A2%83%E5%8F%98%E9%87%8F%E6%96%B9%E5%BC%8F%EF%BC%88%E6%9C%80%E7%AE%80%EF%BC%89"><span class="toc-number">6.1.</span> <span class="toc-text">6.1 环境变量方式（最简）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-Driver-API-%E6%96%B9%E5%BC%8F%EF%BC%88%E5%BA%94%E7%94%A8%E5%86%85%E6%8E%A7%EF%BC%89"><span class="toc-number">6.2.</span> <span class="toc-text">6.2 Driver API 方式（应用内控）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-%E7%94%A8%E5%91%BD%E5%90%8D%E7%AE%A1%E9%81%93%E5%81%9A%E6%B5%81%E5%BC%8F%E9%87%87%E9%9B%86%EF%BC%88CUDA-12-3-%EF%BC%89"><span class="toc-number">6.3.</span> <span class="toc-text">6.3 用命名管道做流式采集（CUDA 12.3+）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5%E4%B8%8E%E5%9D%91%E7%82%B9"><span class="toc-number">7.</span> <span class="toc-text">七、最佳实践与坑点</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E5%B0%8F%E7%BB%93"><span class="toc-number">8.</span> <span class="toc-text">八、小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E6%96%87%E6%A1%A3"><span class="toc-number">9.</span> <span class="toc-text">参考文档</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>Recent Posts</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/20/GPU-coreDump-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/" title="GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解">GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解</a><time datetime="2026-09-20T10:00:00.000Z" title="Created 2026-09-20 10:00:00">2026-09-20</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/18/AGENTS-md-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/" title="AGENTS.md 使用指南：给 AI Agent 看的 README，一份文件跨工具通用">AGENTS.md 使用指南：给 AI Agent 看的 README，一份文件跨工具通用</a><time datetime="2026-09-18T15:00:00.000Z" title="Created 2026-09-18 15:00:00">2026-09-18</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/17/Cline-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/" title="Cline 使用指南：AI 编程代理的自动化流程与 GitHub 部署">Cline 使用指南：AI 编程代理的自动化流程与 GitHub 部署</a><time datetime="2026-09-17T15:00:00.000Z" title="Created 2026-09-17 15:00:00">2026-09-17</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/17/GitHub-Actions-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/" title="GitHub Actions 工作流程详解：从概念到自动部署">GitHub Actions 工作流程详解：从概念到自动部署</a><time datetime="2026-09-17T10:30:00.000Z" title="Created 2026-09-17 10:30:00">2026-09-17</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/17/gh-CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/" title="gh CLI 使用指南：命令行玩转 GitHub">gh CLI 使用指南：命令行玩转 GitHub</a><time datetime="2026-09-17T10:00:00.000Z" title="Created 2026-09-17 10:00:00">2026-09-17</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By KernelDriver</span><span class="framework-info"><span>Framework </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.1.1</a><span class="footer-separator">|</span><span>Theme </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.7.0</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="Reading Mode"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="Toggle Between Light and Dark Mode"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="Toggle Between Single-column and Double-column"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="Settings"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="Table of Contents"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="Back to Top"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.7.0"></script><script src="/js/main.js?v=5.7.0"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script></div></body></html>
