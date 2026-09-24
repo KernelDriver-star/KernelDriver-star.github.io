@@ -1,0 +1,442 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>vLLM 源码编译实战：RTX 5060 Ti（sm_120）从零构建可调试的 CUDA 内核环境 | KernelDriver</title><meta name="author" content="KernelDriver"><meta name="copyright" content="KernelDriver"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="上一篇《vLLM 详解：从 PagedAttention 到 V1 引擎》讲了 vLLM 的原理。原理看懂之后，下一步自然是钻进 CUDA 内核层——但 pip 装的预编译 wheel 只给你二进制，内核源码和编译产物对不上，没法读、没法改、更没法调。本文记录在 Windows 11 + WSL2 + RTX 5060 Ti（Blackwell, sm_120） 上从源码完整编译 vLLM v0.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="vLLM 源码编译实战：RTX 5060 Ti（sm_120）从零构建可调试的 CUDA 内核环境">
+<meta property="og:url" content="http://example.com/2026/09/24/vLLM-%E6%BA%90%E7%A0%81%E7%BC%96%E8%AF%91%E5%AE%9E%E6%88%98%E4%B8%8ECUDA%E5%86%85%E6%A0%B8%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF/index.html">
+<meta property="og:site_name" content="KernelDriver">
+<meta property="og:description" content="上一篇《vLLM 详解：从 PagedAttention 到 V1 引擎》讲了 vLLM 的原理。原理看懂之后，下一步自然是钻进 CUDA 内核层——但 pip 装的预编译 wheel 只给你二进制，内核源码和编译产物对不上，没法读、没法改、更没法调。本文记录在 Windows 11 + WSL2 + RTX 5060 Ti（Blackwell, sm_120） 上从源码完整编译 vLLM v0.">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="http://example.com/img/butterfly-icon.png">
+<meta property="article:published_time" content="2026-09-24T10:00:00.000Z">
+<meta property="article:modified_time" content="2026-09-24T08:47:39.189Z">
+<meta property="article:author" content="KernelDriver">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="vLLM">
+<meta property="article:tag" content="源码编译">
+<meta property="article:tag" content="WSL2">
+<meta property="article:tag" content="Blackwell">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://example.com/img/butterfly-icon.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "vLLM 源码编译实战：RTX 5060 Ti（sm_120）从零构建可调试的 CUDA 内核环境",
+  "url": "http://example.com/2026/09/24/vLLM-%E6%BA%90%E7%A0%81%E7%BC%96%E8%AF%91%E5%AE%9E%E6%88%98%E4%B8%8ECUDA%E5%86%85%E6%A0%B8%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF/",
+  "image": "http://example.com/img/butterfly-icon.png",
+  "datePublished": "2026-09-24T10:00:00.000Z",
+  "dateModified": "2026-09-24T08:47:39.189Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "KernelDriver",
+      "url": "http://example.com"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.png"><link rel="canonical" href="http://example.com/2026/09/24/vLLM-%E6%BA%90%E7%A0%81%E7%BC%96%E8%AF%91%E5%AE%9E%E6%88%98%E4%B8%8ECUDA%E5%86%85%E6%A0%B8%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.7.0"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.3.1/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        const data = { value }
+
+        if (ttl != null) {
+          data.expiry = Date.now() + ttl * 86400000
+        }
+
+        localStorage.setItem(key, JSON.stringify(data))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return
+
+        try {
+          const data = JSON.parse(itemStr)
+
+          if (data.expiry && Date.now() > data.expiry) {
+            localStorage.removeItem(key)
+            return
+          }
+
+          return data.value
+        } catch {
+          localStorage.removeItem(key)
+        }
+      }
+    }
+
+    const scriptCache = new Map()
+    const cssCache = new Map()
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => {
+        if (scriptCache.has(url)) {
+          return scriptCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+
+          script.src = url
+          script.async = true
+
+          for (const key in attr) {
+            script.setAttribute(key, attr[key])
+          }
+
+          script.onload = resolve
+          script.onerror = reject
+
+          document.head.appendChild(script)
+        })
+
+        scriptCache.set(url, promise)
+
+        return promise
+      },
+      getCSS: (url, id) => {
+        if (cssCache.has(url)) {
+          return cssCache.get(url)
+        }
+
+        const promise = new Promise((resolve, reject) => {
+          const link = document.createElement('link')
+
+          link.rel = 'stylesheet'
+          link.href = url
+
+          if (id) {
+            link.id = id
+          }
+
+          link.onload = resolve
+          link.onerror = reject
+
+          document.head.appendChild(link)
+        })
+
+        cssCache.set(url, promise)
+
+        return promise
+      },
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]')
+      const activateDarkMode = () => {
+        document.documentElement.dataset.theme = 'dark'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.dataset.theme = 'light'
+        if (metaThemeColor !== null) {
+          metaThemeColor.setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: undefined,
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: 'Copy Successful',
+    error: 'Copy Failed',
+    noSupport: 'Browser Not Supported'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: 'Just now',
+    min: 'minutes ago',
+    hour: 'hours ago',
+    day: 'days ago',
+    month: 'months ago'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: 'Load More'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'vLLM 源码编译实战：RTX 5060 Ti（sm_120）从零构建可调试的 CUDA 内核环境',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" href="/css/resume.css"><meta name="generator" content="Hexo 7.1.1"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="/img/butterfly-icon.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">10</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">30</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">5</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/resume/"><i class="fa-fw fas fa-user"></i><span> 简历</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/banner.svg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">KernelDriver</span></a><a class="nav-page-title" href="/"><span class="site-name">vLLM 源码编译实战：RTX 5060 Ti（sm_120）从零构建可调试的 CUDA 内核环境</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  Back to Home</span></span></a></span><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/resume/"><i class="fa-fw fas fa-user"></i><span> 简历</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">vLLM 源码编译实战：RTX 5060 Ti（sm_120）从零构建可调试的 CUDA 内核环境</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">Created</span><time class="post-meta-date-created" datetime="2026-09-24T10:00:00.000Z" title="Created 2026-09-24 10:00:00">2026-09-24</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">Updated</span><time class="post-meta-date-updated" datetime="2026-09-24T08:47:39.189Z" title="Updated 2026-09-24 08:47:39">2026-09-24</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/AI%E6%8E%A8%E7%90%86/">AI推理</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">Post Views:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><p>上一篇《<a href="/2026/09/22/vLLM-%E9%AB%98%E5%90%9E%E5%90%90LLM%E6%8E%A8%E7%90%86%E5%BC%95%E6%93%8E/">vLLM 详解：从 PagedAttention 到 V1 引擎</a>》讲了 vLLM 的原理。原理看懂之后，下一步自然是<strong>钻进 CUDA 内核层</strong>——但 pip 装的预编译 wheel 只给你二进制，内核源码和编译产物对不上，没法读、没法改、更没法调。本文记录在 <strong>Windows 11 + WSL2 + RTX 5060 Ti（Blackwell, sm_120）</strong> 上从源码完整编译 vLLM v0.30.0 的全过程：环境怎么配、依赖怎么锁、编译参数怎么选、踩过的坑，以及编译通过后<strong>该按什么顺序读 CUDA 内核源码</strong>。全程实测，最终端到端推理跑通（Qwen3-0.6B 生成 48 token 仅 0.44s，约 109 tok&#x2F;s）。</p>
+<h2 id="一、为什么要源码编译"><a href="#一、为什么要源码编译" class="headerlink" title="一、为什么要源码编译"></a>一、为什么要源码编译</h2><table>
+<thead>
+<tr>
+<th></th>
+<th>pip 预编译 wheel</th>
+<th>源码 editable 编译</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>安装</td>
+<td><code>pip install vllm</code>，几分钟</td>
+<td>全流程约 5 小时</td>
+</tr>
+<tr>
+<td>CUDA 内核源码</td>
+<td>看不到（只有 .so）</td>
+<td><code>csrc/</code> 下全部可读</td>
+</tr>
+<tr>
+<td>改内核验证</td>
+<td>不可能</td>
+<td>改 <code>.cu</code> → 重编 → 生效</td>
+</tr>
+<tr>
+<td>内核级调试</td>
+<td>只有函数名</td>
+<td>nsys&#x2F;ncu&#x2F;cuda-gdb + <code>printf</code> 全可用</td>
+</tr>
+<tr>
+<td>适合</td>
+<td>使用者</td>
+<td>内核开发者&#x2F;研究者</td>
+</tr>
+</tbody></table>
+<p>对 GPU 内核开发者来说，只有第二条路。目标形态是 <strong><code>pip install -e .</code>（editable 安装）</strong>：Python 层直接从源码目录加载，改 <code>.py</code> 即时生效；CUDA 层改完重编对应扩展即可。</p>
+<h2 id="二、环境与硬件"><a href="#二、环境与硬件" class="headerlink" title="二、环境与硬件"></a>二、环境与硬件</h2><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>配置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主机</td>
+<td>Windows 11，16 核 CPU，<strong>15.8GB 物理内存</strong>（最关键的约束）</td>
+</tr>
+<tr>
+<td>GPU</td>
+<td>RTX 5060 Ti 8GB，Blackwell 架构，<strong>算力 sm_120</strong></td>
+</tr>
+<tr>
+<td>Linux 环境</td>
+<td>WSL2 Ubuntu 24.04</td>
+</tr>
+<tr>
+<td>CUDA Toolkit</td>
+<td>13.0（nvcc V13.0.88），装在 WSL 里</td>
+</tr>
+<tr>
+<td>PyTorch</td>
+<td>2.13.0+cu130（sm_120 必须 cu12.8+ 的 torch）</td>
+</tr>
+<tr>
+<td>vLLM</td>
+<td>v0.30.0 源码</td>
+</tr>
+</tbody></table>
+<p>sm_120 是消费级 Blackwell（RTX 50 系）的新算力，这带来两个硬性要求：<strong>CUDA Toolkit ≥ 12.8</strong>（本文用 13.0），以及 <strong>PyTorch 必须是 cu128&#x2F;cu130 构建</strong>，否则 <code>sm_120 is not compatible</code>。这也是不能偷懒用旧环境的原因。</p>
+<h2 id="三、编译全流程"><a href="#三、编译全流程" class="headerlink" title="三、编译全流程"></a>三、编译全流程</h2><h3 id="3-1-WSL2-内存与-Swap：先保住编译不炸"><a href="#3-1-WSL2-内存与-Swap：先保住编译不炸" class="headerlink" title="3.1 WSL2 内存与 Swap：先保住编译不炸"></a>3.1 WSL2 内存与 Swap：先保住编译不炸</h3><p>vLLM 全量编译有 <strong>605 个 ninja 目标</strong>，其中 CUTLASS&#x2F;FlashAttention 的模板实例化是吃内存大户（<code>cicc</code>&#x2F;<code>ptxas</code> 单个进程峰值可达 4~6GB）。15.8GB 物理内存直接编译必炸，先在 Windows 侧配 <code>C:\Users\&lt;你&gt;\.wslconfig</code>：</p>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="section">[wsl2]</span></span><br><span class="line"><span class="attr">memory</span>=<span class="number">9</span>GB</span><br><span class="line"><span class="attr">processors</span>=<span class="number">16</span></span><br><span class="line"><span class="attr">swap</span>=<span class="number">24</span>GB</span><br><span class="line"><span class="attr">swapFile</span>=D:\\wsl-swap.vhdx</span><br></pre></td></tr></table></figure>
+
+<p>改完 <code>wsl --shutdown</code> 重启生效。Swap 是给编译器”兜底”的，不是用来跑满并行的——这点在坑 #1 详述。</p>
+<h3 id="3-2-安装-CUDA-Toolkit-13-0（WSL-版）"><a href="#3-2-安装-CUDA-Toolkit-13-0（WSL-版）" class="headerlink" title="3.2 安装 CUDA Toolkit 13.0（WSL 版）"></a>3.2 安装 CUDA Toolkit 13.0（WSL 版）</h3><p>WSL 里<strong>只装 CUDA Toolkit，不装驱动</strong>（驱动由 Windows 宿主提供，WSL 自动透传）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># NVIDIA 官方 CUDA 13.0 仓库（ubuntu2404 版本）</span></span><br><span class="line">wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb</span><br><span class="line">sudo dpkg -i cuda-keyring_1.1-1_all.deb</span><br><span class="line">sudo apt update &amp;&amp; sudo apt install -y cuda-toolkit-13-0</span><br><span class="line"></span><br><span class="line"><span class="comment"># 环境变量写入 ~/.bashrc</span></span><br><span class="line"><span class="built_in">export</span> PATH=/usr/local/cuda/bin:<span class="variable">$PATH</span></span><br><span class="line"><span class="built_in">export</span> LD_LIBRARY_PATH=/usr/local/cuda/lib64:<span class="variable">$LD_LIBRARY_PATH</span></span><br><span class="line"></span><br><span class="line">nvcc --version   <span class="comment"># 确认 V13.0.88</span></span><br><span class="line">nvidia-smi       <span class="comment"># WSL 里应直接能看到 RTX 5060 Ti</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-3-克隆源码与预克隆全部外部依赖"><a href="#3-3-克隆源码与预克隆全部外部依赖" class="headerlink" title="3.3 克隆源码与预克隆全部外部依赖"></a>3.3 克隆源码与预克隆全部外部依赖</h3><p>vLLM 的构建会从 GitHub 拉取 <strong>10 个外部依赖</strong>（cutlass、flash-attn、triton、deepgemm、qutlass、deepselect、flashmla、fmha_sm100、tml_fa4、flashkda），构建脚本支持用环境变量指定本地源码目录跳过下载。<strong>国内网络下这步必须提前做</strong>，否则编译中途拉取失败前功尽弃：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">git <span class="built_in">clone</span> -b v0.30.0 https://github.com/vllm-project/vllm ~/vllm-work/vllm</span><br><span class="line"><span class="built_in">mkdir</span> -p ~/vllm-work/deps &amp;&amp; <span class="built_in">cd</span> ~/vllm-work/deps</span><br><span class="line"><span class="comment"># 按 vllm/cmake/external_projects/*.cmake 里声明的 commit，逐个 clone 并 checkout</span></span><br><span class="line">git <span class="built_in">clone</span> https://github.com/NVIDIA/cutlass &amp;&amp; git -C cutlass checkout cb42473   <span class="comment"># v4.7.1</span></span><br><span class="line">git <span class="built_in">clone</span> https://github.com/Dao-AILab/flash-attention flash-attn &amp;&amp; git -C flash-attn checkout 506341a</span><br><span class="line"><span class="comment"># ... 其余 8 个同理</span></span><br></pre></td></tr></table></figure>
+
+<p>国内加速的两个必要配置：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># GitHub 走代理镜像（实测稳定可用的一个）</span></span><br><span class="line">git config --global url.<span class="string">&quot;https://gh-proxy.com/https://github.com/&quot;</span>.insteadOf <span class="string">&quot;https://github.com/&quot;</span></span><br><span class="line"><span class="comment"># pip 走清华源</span></span><br><span class="line">pip config <span class="built_in">set</span> global.index-url https://pypi.tuna.tsinghua.edu.cn/simple</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-4-CUTLASS-子模块：必须逐个锁到各自的-pin（最容易踩的坑）"><a href="#3-4-CUTLASS-子模块：必须逐个锁到各自的-pin（最容易踩的坑）" class="headerlink" title="3.4 CUTLASS 子模块：必须逐个锁到各自的 pin（最容易踩的坑）"></a>3.4 CUTLASS 子模块：必须逐个锁到各自的 pin（最容易踩的坑）</h3><p>这是整个编译中最反直觉的一点：<strong>多个依赖各自内嵌了 CUTLASS 子模块，且版本要求互不相同，不能共用一份</strong>。v0.30 实测的锁定关系：</p>
+<table>
+<thead>
+<tr>
+<th>依赖</th>
+<th>内嵌 CUTLASS 位置</th>
+<th>要求的版本</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>flash-attn</td>
+<td><code>csrc/cutlass</code></td>
+<td><strong>v3.9</strong>（62750a2）</td>
+</tr>
+<tr>
+<td>deepgemm</td>
+<td><code>third-party/cutlass</code></td>
+<td>f3fde58</td>
+</tr>
+<tr>
+<td>flashkda</td>
+<td><code>cutlass</code></td>
+<td>5c149f5</td>
+</tr>
+<tr>
+<td>qutlass</td>
+<td><code>third_party/cutlass</code></td>
+<td>b2ca083</td>
+</tr>
+<tr>
+<td>deepselect</td>
+<td><code>csrc/3rdparty/cutlass</code></td>
+<td>ae6bccf</td>
+</tr>
+<tr>
+<td>flashmla</td>
+<td><code>csrc/cutlass</code></td>
+<td>147f567</td>
+</tr>
+<tr>
+<td>fmha_sm100</td>
+<td><code>python/fmha_sm100/cutlass</code></td>
+<td>eb61c91</td>
+</tr>
+</tbody></table>
+<p>我曾试图”偷懒”把它们全部指向仓库根的 cutlass v4.7.1：FA2 能编过，但 FA3 在 393&#x2F;605 处报错 <code>cute::SM100_MMA_F8F6F4_SS argument list is missing</code>——<strong>CUTLASS 的模板 API 跨版本不兼容</strong>，只能老老实实逐个 checkout 到各自 pin。</p>
+<h3 id="3-5-系统依赖与-Python-构建依赖"><a href="#3-5-系统依赖与-Python-构建依赖" class="headerlink" title="3.5 系统依赖与 Python 构建依赖"></a>3.5 系统依赖与 Python 构建依赖</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 系统库：这两个是最后卡住的拦路虎，deepgemm 的 deep_jit 需要 libdwfl.h</span></span><br><span class="line">sudo apt install -y libdw-dev libnuma-dev</span><br><span class="line"></span><br><span class="line"><span class="comment"># Python 构建依赖（装进 venv）</span></span><br><span class="line">python3 -m venv ~/vllm-work/.venv &amp;&amp; <span class="built_in">source</span> ~/vllm-work/.venv/bin/activate</span><br><span class="line">pip install <span class="string">&quot;cmake&gt;=3.26.1&quot;</span> ninja <span class="string">&quot;packaging&gt;=24.2&quot;</span> \</span><br><span class="line">  <span class="string">&quot;setuptools&gt;=77.0.3,&lt;81.0.0&quot;</span> setuptools-scm setuptools-rust wheel jinja2</span><br><span class="line">pip install torch --index-url https://download.pytorch.org/whl/cu130  <span class="comment"># 2.13.0+cu130</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-6-编译脚本与关键参数"><a href="#3-6-编译脚本与关键参数" class="headerlink" title="3.6 编译脚本与关键参数"></a>3.6 编译脚本与关键参数</h3><p>核心编译脚本（<code>build_vllm.sh</code>）的关键部分：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#!/bin/bash</span></span><br><span class="line"><span class="built_in">set</span> -e</span><br><span class="line"><span class="built_in">source</span> ~/vllm-work/.venv/bin/activate</span><br><span class="line"><span class="built_in">cd</span> ~/vllm-work/vllm</span><br><span class="line"></span><br><span class="line"><span class="comment"># 指向 3.3/3.4 预克隆好的依赖，跳过构建期下载</span></span><br><span class="line">DEPS=<span class="variable">$HOME</span>/vllm-work/deps</span><br><span class="line"><span class="built_in">export</span> VLLM_CUTLASS_SRC_DIR=<span class="string">&quot;<span class="variable">$DEPS</span>/cutlass&quot;</span></span><br><span class="line"><span class="built_in">export</span> VLLM_FLASH_ATTN_SRC_DIR=<span class="string">&quot;<span class="variable">$DEPS</span>/flash-attn&quot;</span></span><br><span class="line"><span class="built_in">export</span> DEEPGEMM_SRC_DIR=<span class="string">&quot;<span class="variable">$DEPS</span>/deepgemm&quot;</span></span><br><span class="line"><span class="comment"># ... 其余 7 个 *_SRC_DIR 同理</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">export</span> VLLM_TARGET_DEVICE=cuda</span><br><span class="line"><span class="built_in">export</span> TORCH_CUDA_ARCH_LIST=<span class="string">&quot;12.0&quot;</span>     <span class="comment"># 只编 sm_120，省掉其它架构，大幅提速</span></span><br><span class="line"><span class="built_in">export</span> MAX_JOBS=2                      <span class="comment"># 16GB 内存的生命线，见坑 #1</span></span><br><span class="line"><span class="built_in">export</span> CMAKE_BUILD_PARALLEL_LEVEL=2</span><br><span class="line"><span class="built_in">export</span> NVCC_THREADS=2</span><br><span class="line"></span><br><span class="line"><span class="built_in">set</span> -o pipefail                         <span class="comment"># 见坑 #6：拿到 pip 真实退出码</span></span><br><span class="line">pip install -e . --no-build-isolation 2&gt;&amp;1 | <span class="built_in">tee</span> build.log</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;pip_exit=<span class="variable">$&#123;PIPESTATUS[0]&#125;</span>&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>--no-build-isolation</code> 让构建直接用 venv 里装好的 torch&#x2F;cmake，避免 pip 再开隔离环境重复下载。</p>
+<h3 id="3-7-编译与验证"><a href="#3-7-编译与验证" class="headerlink" title="3.7 编译与验证"></a>3.7 编译与验证</h3><p><code>-j2</code> 下全量编译约 <strong>5 小时</strong>（605 个目标）。顺序大致是：cumem_allocator&#x2F;triton_kernels → FA2（约 100 个 kernel）→ FA3（hopper&#x2F;sm90）→ deepgemm → moe&#x2F;quantization 等。看到这两行就是成了：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Successfully built vllm</span><br><span class="line">Successfully installed vllm-0.30.0</span><br></pre></td></tr></table></figure>
+
+<p>验证 editable 安装和扩展加载：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch, vllm</span><br><span class="line"><span class="keyword">import</span> vllm._C_stable_libtorch <span class="keyword">as</span> core      <span class="comment"># v0.30 主扩展名（stable ABI）</span></span><br><span class="line"><span class="keyword">import</span> vllm.vllm_flash_attn <span class="keyword">as</span> vfa</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(vllm.__file__)   <span class="comment"># 必须指向源码目录 /home/.../vllm-work/vllm/vllm/__init__.py</span></span><br><span class="line"><span class="built_in">print</span>(torch.cuda.is_available(), torch.cuda.get_device_name(<span class="number">0</span>))</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;sm_%d%d&quot;</span> % torch.cuda.get_device_capability(<span class="number">0</span>))   <span class="comment"># sm_120</span></span><br></pre></td></tr></table></figure>
+
+<h2 id="四、运行：端到端推理验证"><a href="#四、运行：端到端推理验证" class="headerlink" title="四、运行：端到端推理验证"></a>四、运行：端到端推理验证</h2><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> vllm <span class="keyword">import</span> LLM, SamplingParams</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">main</span>():</span><br><span class="line">    llm = LLM(model=<span class="string">&quot;Qwen/Qwen3-0.6B&quot;</span>,</span><br><span class="line">              gpu_memory_utilization=<span class="number">0.85</span>,</span><br><span class="line">              max_model_len=<span class="number">2048</span>,</span><br><span class="line">              dtype=<span class="string">&quot;bfloat16&quot;</span>)</span><br><span class="line">    outs = llm.generate([<span class="string">&quot;用一句话说明 GPU kernel 是什么：&quot;</span>],</span><br><span class="line">                        SamplingParams(temperature=<span class="number">0.0</span>, max_tokens=<span class="number">48</span>))</span><br><span class="line">    <span class="built_in">print</span>(outs[<span class="number">0</span>].outputs[<span class="number">0</span>].text)</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&quot;__main__&quot;</span>:   <span class="comment"># 必须加，见坑 #5</span></span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
+
+<p>国内网络环境运行前必须设置镜像，否则 vLLM 联网拉模型元数据时卡死：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">export</span> HF_ENDPOINT=https://hf-mirror.com   <span class="comment"># huggingface.co 国内不可达</span></span><br><span class="line"><span class="built_in">export</span> HF_HUB_DISABLE_XET=1</span><br><span class="line">python e2e_infer.py</span><br></pre></td></tr></table></figure>
+
+<p>实测结果（RTX 5060 Ti 8GB）：首次加载 247s（含 torch.compile + 53 个 CUDA graph 捕获），KV cache 4.51 GiB &#x2F; 42208 tokens，<strong>生成 48 token 用时 0.44s（约 109 tok&#x2F;s）</strong>，输出连贯正确。至此源码环境完全就绪。</p>
+<h2 id="五、踩坑记录（每一条都是几小时的教训）"><a href="#五、踩坑记录（每一条都是几小时的教训）" class="headerlink" title="五、踩坑记录（每一条都是几小时的教训）"></a>五、踩坑记录（每一条都是几小时的教训）</h2><ol>
+<li><strong>并行度不是越高越好：<code>-j4</code> 比 <code>-j2</code> 慢得多。</strong> 15.8GB 内存 + <code>-j4</code> 时多个 <code>cicc</code> 同时驻留把物理内存打穿，系统陷入 swap 颠簸：编译进程全部卡在 D 状态，单个编译单元 21 分钟编不完，WSL 整体假死。降到 <code>-j2</code> 后 swap 几乎零占用、编译器保持 R 状态，<strong>单 TU 反而快了好几倍</strong>。内存 ≤16GB 的机器，<code>-j2</code> 是甜点。</li>
+<li><strong>CUTLASS 版本不可互换</strong>（见 3.4）。报错形式是 <code>cute::XXX argument list is missing</code> 这类模板实例化失败，看到它先怀疑 CUTLASS 版本，而不是代码问题。</li>
+<li><strong>git 浅克隆多个 SHA 会被自动 gc 回收。</strong> 裸 <code>git fetch origin &lt;sha1&gt; &lt;sha2&gt;</code> 只挂在一个 FETCH_HEAD 下，后续 clone 触发 auto-gc 把”无引用”的浅克隆对象清掉。正确做法：fetch 时写 refspec <code>&lt;sha&gt;:refs/tags/&lt;name&gt;</code> 并 <code>git config gc.auto 0</code>。</li>
+<li><strong>pip editable 构建失败会删除临时构建目录</strong>，失败后不保留 ninja 中间产物，无法断点续编——每次失败都是全量重来，所以<strong>先把依赖和环境问题清零再点火</strong>。</li>
+<li><strong>Python 脚本必须加 <code>if __name__ == &quot;__main__&quot;:</code> 守卫。</strong> vLLM V1 引擎用 spawn 起子进程，子进程会重新 import 主模块；顶层直接 <code>LLM(...)</code> 会无限递归报 <code>RuntimeError: An attempt has been made to start a new process...</code>。</li>
+<li><strong><code>tee</code> 会吃掉 pip 的退出码。</strong> 管道记录日志时要 <code>set -o pipefail</code> + <code>$&#123;PIPESTATUS[0]&#125;</code>，否则编译失败了脚本还报”成功”。</li>
+<li><strong>PowerShell 会绞碎 <code>wsl bash -c &#39;...&#39;</code> 里的引号和管道符。</strong> 在 Windows 侧驱动 WSL 跑命令时，把命令写成 <code>.sh</code> 文件再 <code>wsl -- bash /mnt/d/.../x.sh</code>，别在内联字符串里搏斗。</li>
+<li><strong>网络三件套</strong>：GitHub 走 <code>gh-proxy.com</code> 的 insteadOf 重写；HF 模型走 <code>HF_ENDPOINT=https://hf-mirror.com</code>；<code>HF_HUB_DISABLE_XET=1</code> 关掉 xet 传输。任何一个没配都会在对应环节卡死且无明确报错。</li>
+<li><strong>缺 <code>libdw-dev</code> 会死在编译后段</strong>（约 290 分钟处）：deepgemm 的 <code>deep_jit/utils/exception.hpp</code> 需要 <code>elfutils/libdwfl.h</code>。系统依赖要在点火前装齐。</li>
+<li><strong><code>Failed to import the DeepSelect extension</code> 警告可忽略</strong>：那是可选的投机解码 top-k 扩展，不构建不影响常规推理。</li>
+<li><strong>构建成功后没有持久 <code>build/</code> 目录</strong>（setuptools 临时目录被清理），改一个 <code>.cu</code> 直接重跑会全量重编 5 小时。迭代内核前务必先上 ccache：</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">sudo apt install -y ccache &amp;&amp; ccache -M 50G</span><br><span class="line"><span class="comment"># build_vllm.sh 中加三行，然后完整跑一次预热缓存：</span></span><br><span class="line"><span class="built_in">export</span> CMAKE_C_COMPILER_LAUNCHER=ccache</span><br><span class="line"><span class="built_in">export</span> CMAKE_CXX_COMPILER_LAUNCHER=ccache</span><br><span class="line"><span class="built_in">export</span> CMAKE_CUDA_COMPILER_LAUNCHER=ccache</span><br></pre></td></tr></table></figure>
+
+<p>预热后改单个 <code>.cu</code> 再重编（去掉脚本里 <code>rm -rf build</code>），通常 1~3 分钟完成增量重链。</p>
+<h2 id="六、CUDA-内核源码地图（v0-30-版）"><a href="#六、CUDA-内核源码地图（v0-30-版）" class="headerlink" title="六、CUDA 内核源码地图（v0.30 版）"></a>六、CUDA 内核源码地图（v0.30 版）</h2><p>v0.30 把绝大多数原生内核收敛进了 <code>csrc/libtorch_stable/</code>（stable libtorch ABI，183 个 .cu&#x2F;.cuh）。一次算子调用的完整链路：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Python 模型层        vllm/.../*.py</span><br><span class="line">   │  torch.ops._C.xxx(...)</span><br><span class="line">Python 算子封装      vllm/_custom_ops.py、vllm/v1/attention/ops/*.py</span><br><span class="line">   │  按 op 名命中注册表</span><br><span class="line">C++ 注册层           csrc/libtorch_stable/torch_bindings.cpp（1172 行，m.def/m.impl）</span><br><span class="line">   ↓</span><br><span class="line">CUDA 实现           csrc/libtorch_stable/**/*.cu → _C_stable_libtorch.abi3.so</span><br></pre></td></tr></table></figure>
+
+<p>扩展在 <code>vllm/platforms/cuda.py</code> 里 <code>import vllm._C_stable_libtorch</code> 时加载。按目录分：</p>
+<table>
+<thead>
+<tr>
+<th>目录&#x2F;文件</th>
+<th>内容</th>
+<th>适合阶段</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>csrc/libtorch_stable/torch_bindings.cpp</code></td>
+<td>全部 op 的注册表（<code>_C::ops</code> 等 4 个 fragment）</td>
+<td>入口地图，先读</td>
+</tr>
+<tr>
+<td><code>layernorm_kernels.cu</code>、<code>activation_kernels.cu</code>、<code>pos_encoding_kernels.cu</code></td>
+<td>RMSNorm&#x2F;SiLU&#x2F;RoPE 等逐元素内核</td>
+<td><strong>入门首选</strong>，自包含</td>
+</tr>
+<tr>
+<td><code>cache_kernels*.cu</code></td>
+<td>KV cache 写入、rope+qknorm 融合</td>
+<td>第二步</td>
+</tr>
+<tr>
+<td><code>csrc/libtorch_stable/attention/</code></td>
+<td><code>merge_attn_states.cu</code>、<code>sm100_cutlass_mla_kernel.cu</code>（MLA）等</td>
+<td>进阶</td>
+</tr>
+<tr>
+<td><code>csrc/libtorch_stable/moe/</code>（28 个）</td>
+<td>MoE permute&#x2F;topk&#x2F;分组 GEMM</td>
+<td>进阶</td>
+</tr>
+<tr>
+<td><code>csrc/libtorch_stable/quantization/</code>（107 个）</td>
+<td>marlin(23)、w8a8(20)、fp4(10)、gptq&#x2F;awq…</td>
+<td>专题</td>
+</tr>
+<tr>
+<td><code>~/vllm-work/deps/flash-attn/csrc/flash_attn/src/</code></td>
+<td><strong>FA2 本体</strong>，按 head_dim&#x2F;dtype 实例化约 100 个 .cu</td>
+<td>核心</td>
+</tr>
+<tr>
+<td><code>~/vllm-work/deps/flash-attn/csrc/flash_attn/hopper/</code></td>
+<td><strong>FA3</strong>（Hopper 风格，CUTLASS&#x2F;cute）</td>
+<td>深水区</td>
+</tr>
+<tr>
+<td><code>vllm/v1/attention/backends/*.py</code></td>
+<td>Python 侧注意力后端选择层（flash_attn&#x2F;triton&#x2F;flashinfer…）</td>
+<td>对照读</td>
+</tr>
+</tbody></table>
+<p>注意 <strong>FlashAttention 不在 vLLM 仓库里</strong>，是独立依赖编入的（产物 <code>vllm/vllm_flash_attn/_vllm_fa2_C.abi3.so</code> &#x2F; <code>_vllm_fa3_C.abi3.so</code>），读它要去 <code>deps/flash-attn/</code>。</p>
+<h2 id="七、学习顺序建议"><a href="#七、学习顺序建议" class="headerlink" title="七、学习顺序建议"></a>七、学习顺序建议</h2><p>按”从能跑到能改再到能写”排的路径：</p>
+<ol>
+<li><strong>跑通 + 会看日志</strong>（半天）：启动日志里确认实际选中的 attention backend、KV cache 大小、CUDA graph 捕获数量。可用 <code>VLLM_ATTENTION_BACKEND=FLASH_ATTN</code>（或 <code>TRITON_FLASH_ATTN</code>）强制切换后端对比。</li>
+<li><strong>走通一条调用链</strong>（1 天）：拿 <code>rms_norm</code> 练手——<code>_custom_ops.py: torch.ops._C.rms_norm</code> → <code>torch_bindings.cpp</code> 搜 <code>m.def(&quot;rms_norm...</code> → <code>layernorm_kernels.cu</code> 里的 <code>rms_norm_kernel</code>。这条链走通，所有 op 都是同一套路。</li>
+<li><strong>改一个简单内核</strong>（1~2 天）：在 <code>layernorm_kernels.cu</code> 或 <code>activation_kernels.cu</code> 的 <code>__global__</code> 里加 <code>printf</code>，ccache 增量重编（分钟级），跑推理看输出。调试时设 <code>enforce_eager=True</code> 跳过 CUDA graph（图捕获会吞掉断点和打印）。</li>
+<li><strong>KV cache 路径</strong>（2~3 天）：<code>cache_kernels*.cu</code> + <code>vllm/v1/attention/ops/paged_attn.py</code>，对照上一篇讲的 PagedAttention 原理，看 block table 怎么落到内核参数。</li>
+<li><strong>Attention 本体</strong>（1~2 周）：先 Python 后端层理解 prefill&#x2F;decode 分流 → FA2 的 <code>flash_fwd_hdim*_sm80.cu</code>（经典 tiling + online softmax）→ FA3 hopper（CUTLASS&#x2F;cute 抽象，配合 CUTLASS 文档读）。</li>
+<li><strong>MoE 与量化 GEMM</strong>（专题）：<code>moe/</code> 的 topk+permute，再到 <code>quantization/marlin</code>、<code>w8a8</code> 的 INT4&#x2F;FP8 GEMM。</li>
+<li><strong>性能分析贯穿全程</strong>：<code>nsys profile</code> 先看时间线定位热点 kernel → <code>ncu --set full -k &lt;kernel名&gt;</code> 做单 kernel 的带宽&#x2F;occupancy 分析 → 出错时 <code>compute-sanitizer</code> 查越界、<code>cuda-gdb</code> 断 device 函数（需 <code>-G -O0</code> 重编该文件）。</li>
+</ol>
+<p>原则一句话：<strong>先 elementwise 小内核建立”改-编-测”闭环，再进 attention 这种模板重地；任何 kernel 问题先用 nsys&#x2F;ncu 拿到证据再改代码。</strong></p>
+<h2 id="八、小结"><a href="#八、小结" class="headerlink" title="八、小结"></a>八、小结</h2><p>在 sm_120 这种新架构上源码编译 vLLM，真正的难点不在编译器，而在<strong>依赖版本的精确对齐（尤其 CUTLASS）、小内存机器的并行度控制、以及国内网络下的预下载</strong>。把这三件事处理好，<code>-j2</code> 五小时一次通过。编译成功只是起点——editable 安装 + ccache + nsys&#x2F;ncu 组合起来，才是一套能日常读、改、调 CUDA 内核的工作环境。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>Author: </span><span class="post-copyright-info"><a href="http://example.com">KernelDriver</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>Link: </span><span class="post-copyright-info"><a href="http://example.com/2026/09/24/vLLM-%E6%BA%90%E7%A0%81%E7%BC%96%E8%AF%91%E5%AE%9E%E6%88%98%E4%B8%8ECUDA%E5%86%85%E6%A0%B8%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF/">http://example.com/2026/09/24/vLLM-%E6%BA%90%E7%A0%81%E7%BC%96%E8%AF%91%E5%AE%9E%E6%88%98%E4%B8%8ECUDA%E5%86%85%E6%A0%B8%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>Copyright Notice: </span><span class="post-copyright-info">All articles on this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless otherwise stated.</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/GPU/">GPU</a><a class="post-meta__tags" href="/tags/vLLM/">vLLM</a><a class="post-meta__tags" href="/tags/%E6%BA%90%E7%A0%81%E7%BC%96%E8%AF%91/">源码编译</a><a class="post-meta__tags" href="/tags/WSL2/">WSL2</a><a class="post-meta__tags" href="/tags/Blackwell/">Blackwell</a></div><div class="post-share"><div class="social-share" data-image="/img/butterfly-icon.png" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/09/22/NVIDIA-cuda-samples-%E9%A1%B9%E7%9B%AE%E4%BB%8B%E7%BB%8D/" title="NVIDIA/cuda-samples 项目介绍：CUDA 官方示例仓库学习指南"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-right"><div class="info-1"><div class="info-item-1">Next</div><div class="info-item-2">NVIDIA/cuda-samples 项目介绍：CUDA 官方示例仓库学习指南</div></div><div class="info-2"><div class="info-item-1">学 CUDA 最好的教材不是某本书，而是 NVIDIA 官方维护的示例仓库 NVIDIA&#x2F;cuda-samples。它曾经随 CUDA Toolkit 一起安装（老版本里的 ~/NVIDIA_CUDA-*/Samples），后来独立到 GitHub 持续更新，目前已对齐 CUDA Toolkit 13.4。从装机后验证环境的 deviceQuery，到面试必考的 reduction 七种优化，再到 CUDA 13 全新的 Tile kernel 编程模型，全都在这里。本文系统介绍这个仓库的结构、内容和正确用法。 一、项目是什么 仓库地址：github.com&#x2F;NVIDIA&#x2F;cuda-samples 定位：演示 CUDA Toolkit 各项特性的官方示例代码集，不是教学文档，也不是测试套件——每个样例都是可独立编译运行的最小工程 技术栈：C++&#x2F;CUDA 为主（CMake 构建），CUDA 12.x 起新增 Python 示例（基于 cuda.core） 平台覆盖：Linux x86_64、Windows、aarch64（Tegra&#x2...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>Related Articles</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2026/09/20/GPU-coreDump-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/" title="GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-20</div><div class="info-item-2">GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解</div></div><div class="info-2"><div class="info-item-1">GPU 程序跑飞了怎么定位？CPU 上靠 ulimit -c unlimited + gdb 就能拿到崩溃时的寄存器和栈，GPU 上却没这么简单——GPU 没有独立的 OS、没有 /proc/&lt;pid&gt;/maps，整张卡的现场全靠驱动配合 runtime 把显存和寄存器拍照保存下来。这篇把 GPU coreDump 的实现原理讲清楚：触发条件、生成路径、文件格式、加载调试，以及 NVIDIA 与 AMD 两种生态的差异（内容以 CUDA-GDB 手册 和 CUDA Driver API Coredump Attributes 为准）。 一、先回答：GPU coreDump 到底是什么GPU coreDump（GPU 核心转储）是 GPU 在异常或主动触发时，由 GPU 驱动 + runtime 协作把当前 GPU 上下文快照到一个文件里的产物。它和 CPU 的 core 文件目的相同——事后调试（post-mortem debugging），但内容结构完全不同：    维度 CPU core dump GPU coreDump    生成方 Linux 内核（core...</div></div></div></a><a class="pagination-related" href="/2026/09/22/vLLM-%E9%AB%98%E5%90%9E%E5%90%90LLM%E6%8E%A8%E7%90%86%E5%BC%95%E6%93%8E/" title="vLLM 详解：从 PagedAttention 到 V1 引擎的高吞吐 LLM 推理"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-22</div><div class="info-item-2">vLLM 详解：从 PagedAttention 到 V1 引擎的高吞吐 LLM 推理</div></div><div class="info-2"><div class="info-item-1">大模型自托管部署，几乎绕不开 vLLM。它把 HuggingFace 上的开源模型变成一条 OpenAI 兼容的高吞吐推理服务，凭借 PagedAttention 一项技术把同等硬件下的吞吐拉高了数倍，如今已成为事实上的 LLM 推理引擎标准。本文讲清楚 vLLM 解决什么问题、核心技术原理、2026 年 V1 引擎的架构现状，以及如何快速上手（内容以 vLLM 官方文档 与 Inside vLLM 技术博客 为准）。 一、vLLM 是什么vLLM 是一个开源的 LLM 推理与服务引擎，2023 年诞生于 UC Berkeley RISELab，现在是 vllm-project 下的社区项目，几乎所有主流厂商（NVIDIA、AMD、Intel、Google TPU）都为它提供后端支持。 它做的事情可以一句话概括：加载一个 HuggingFace 模型权重，对外提供高吞吐、低延迟的文本生成 API。 12vllm serve Qwen/Qwen3-8B# 一条命令得到一个 OpenAI 兼容服务：http://localhost:8000/v1/chat/completions  ...</div></div></div></a><a class="pagination-related" href="/2026/09/16/Cuda-GDB/" title="CUDA-GDB 使用指南：GPU Kernel Function 调试从入门到实践"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-16</div><div class="info-item-2">CUDA-GDB 使用指南：GPU Kernel Function 调试从入门到实践</div></div><div class="info-2"><div class="info-item-1">写 CUDA 代码最痛苦的莫过于——CPU 端跑得好好的，一到 GPU 上就段错误、结果不对或者干脆卡死，printf 大法既慢又难定位。cuda-gdb 是 NVIDIA 官方提供的 GPU 源码级调试器，基于 GDB 扩展，能让你像调 CPU 程序一样在 GPU 内核里打断点、单步、查看变量。这篇整理一下实际开发中常用的流程和命令（命令语法以 NVIDIA 官方 CUDA-GDB 手册为准）。 一、环境准备1.1 前置条件 安装 CUDA Toolkit（自带 cuda-gdb，不需要单独装） GPU 驱动版本 ≥ CUDA 版本对应要求 Linux 环境（cuda-gdb 对 Linux&#x2F;QNX 支持最完整，Windows 下功能有限） 编译时加 -G 选项生成调试信息（关键！）  1.2 验证安装12cuda-gdb --version# CUDA GDB release x.y.z  12nvidia-smi# 确认 GPU 可用、驱动版本匹配  1.3 编译带调试信息的 CUDA 代码1nvcc -G -g -O0 -o myapp myapp.cu    ...</div></div></div></a><a class="pagination-related" href="/2026/09/22/NVIDIA-cuda-samples-%E9%A1%B9%E7%9B%AE%E4%BB%8B%E7%BB%8D/" title="NVIDIA&#x2F;cuda-samples 项目介绍：CUDA 官方示例仓库学习指南"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-22</div><div class="info-item-2">NVIDIA&#x2F;cuda-samples 项目介绍：CUDA 官方示例仓库学习指南</div></div><div class="info-2"><div class="info-item-1">学 CUDA 最好的教材不是某本书，而是 NVIDIA 官方维护的示例仓库 NVIDIA&#x2F;cuda-samples。它曾经随 CUDA Toolkit 一起安装（老版本里的 ~/NVIDIA_CUDA-*/Samples），后来独立到 GitHub 持续更新，目前已对齐 CUDA Toolkit 13.4。从装机后验证环境的 deviceQuery，到面试必考的 reduction 七种优化，再到 CUDA 13 全新的 Tile kernel 编程模型，全都在这里。本文系统介绍这个仓库的结构、内容和正确用法。 一、项目是什么 仓库地址：github.com&#x2F;NVIDIA&#x2F;cuda-samples 定位：演示 CUDA Toolkit 各项特性的官方示例代码集，不是教学文档，也不是测试套件——每个样例都是可独立编译运行的最小工程 技术栈：C++&#x2F;CUDA 为主（CMake 构建），CUDA 12.x 起新增 Python 示例（基于 cuda.core） 平台覆盖：Linux x86_64、Windows、aarch64（Tegra&#x2...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/img/butterfly-icon.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">KernelDriver</div><div class="author-info-description">专注内核与GPU驱动开发，记录学习与实践</div><div class="site-data"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">10</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">30</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">5</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/KernelDriver-star"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>Announcement</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>Contents</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E6%BA%90%E7%A0%81%E7%BC%96%E8%AF%91"><span class="toc-number">1.</span> <span class="toc-text">一、为什么要源码编译</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E7%8E%AF%E5%A2%83%E4%B8%8E%E7%A1%AC%E4%BB%B6"><span class="toc-number">2.</span> <span class="toc-text">二、环境与硬件</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81%E7%BC%96%E8%AF%91%E5%85%A8%E6%B5%81%E7%A8%8B"><span class="toc-number">3.</span> <span class="toc-text">三、编译全流程</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-WSL2-%E5%86%85%E5%AD%98%E4%B8%8E-Swap%EF%BC%9A%E5%85%88%E4%BF%9D%E4%BD%8F%E7%BC%96%E8%AF%91%E4%B8%8D%E7%82%B8"><span class="toc-number">3.1.</span> <span class="toc-text">3.1 WSL2 内存与 Swap：先保住编译不炸</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-%E5%AE%89%E8%A3%85-CUDA-Toolkit-13-0%EF%BC%88WSL-%E7%89%88%EF%BC%89"><span class="toc-number">3.2.</span> <span class="toc-text">3.2 安装 CUDA Toolkit 13.0（WSL 版）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-%E5%85%8B%E9%9A%86%E6%BA%90%E7%A0%81%E4%B8%8E%E9%A2%84%E5%85%8B%E9%9A%86%E5%85%A8%E9%83%A8%E5%A4%96%E9%83%A8%E4%BE%9D%E8%B5%96"><span class="toc-number">3.3.</span> <span class="toc-text">3.3 克隆源码与预克隆全部外部依赖</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-CUTLASS-%E5%AD%90%E6%A8%A1%E5%9D%97%EF%BC%9A%E5%BF%85%E9%A1%BB%E9%80%90%E4%B8%AA%E9%94%81%E5%88%B0%E5%90%84%E8%87%AA%E7%9A%84-pin%EF%BC%88%E6%9C%80%E5%AE%B9%E6%98%93%E8%B8%A9%E7%9A%84%E5%9D%91%EF%BC%89"><span class="toc-number">3.4.</span> <span class="toc-text">3.4 CUTLASS 子模块：必须逐个锁到各自的 pin（最容易踩的坑）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-%E7%B3%BB%E7%BB%9F%E4%BE%9D%E8%B5%96%E4%B8%8E-Python-%E6%9E%84%E5%BB%BA%E4%BE%9D%E8%B5%96"><span class="toc-number">3.5.</span> <span class="toc-text">3.5 系统依赖与 Python 构建依赖</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-%E7%BC%96%E8%AF%91%E8%84%9A%E6%9C%AC%E4%B8%8E%E5%85%B3%E9%94%AE%E5%8F%82%E6%95%B0"><span class="toc-number">3.6.</span> <span class="toc-text">3.6 编译脚本与关键参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-7-%E7%BC%96%E8%AF%91%E4%B8%8E%E9%AA%8C%E8%AF%81"><span class="toc-number">3.7.</span> <span class="toc-text">3.7 编译与验证</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81%E8%BF%90%E8%A1%8C%EF%BC%9A%E7%AB%AF%E5%88%B0%E7%AB%AF%E6%8E%A8%E7%90%86%E9%AA%8C%E8%AF%81"><span class="toc-number">4.</span> <span class="toc-text">四、运行：端到端推理验证</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81%E8%B8%A9%E5%9D%91%E8%AE%B0%E5%BD%95%EF%BC%88%E6%AF%8F%E4%B8%80%E6%9D%A1%E9%83%BD%E6%98%AF%E5%87%A0%E5%B0%8F%E6%97%B6%E7%9A%84%E6%95%99%E8%AE%AD%EF%BC%89"><span class="toc-number">5.</span> <span class="toc-text">五、踩坑记录（每一条都是几小时的教训）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81CUDA-%E5%86%85%E6%A0%B8%E6%BA%90%E7%A0%81%E5%9C%B0%E5%9B%BE%EF%BC%88v0-30-%E7%89%88%EF%BC%89"><span class="toc-number">6.</span> <span class="toc-text">六、CUDA 内核源码地图（v0.30 版）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81%E5%AD%A6%E4%B9%A0%E9%A1%BA%E5%BA%8F%E5%BB%BA%E8%AE%AE"><span class="toc-number">7.</span> <span class="toc-text">七、学习顺序建议</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81%E5%B0%8F%E7%BB%93"><span class="toc-number">8.</span> <span class="toc-text">八、小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>Recent Posts</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/24/vLLM-%E6%BA%90%E7%A0%81%E7%BC%96%E8%AF%91%E5%AE%9E%E6%88%98%E4%B8%8ECUDA%E5%86%85%E6%A0%B8%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF/" title="vLLM 源码编译实战：RTX 5060 Ti（sm_120）从零构建可调试的 CUDA 内核环境">vLLM 源码编译实战：RTX 5060 Ti（sm_120）从零构建可调试的 CUDA 内核环境</a><time datetime="2026-09-24T10:00:00.000Z" title="Created 2026-09-24 10:00:00">2026-09-24</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/22/NVIDIA-cuda-samples-%E9%A1%B9%E7%9B%AE%E4%BB%8B%E7%BB%8D/" title="NVIDIA/cuda-samples 项目介绍：CUDA 官方示例仓库学习指南">NVIDIA/cuda-samples 项目介绍：CUDA 官方示例仓库学习指南</a><time datetime="2026-09-22T15:00:00.000Z" title="Created 2026-09-22 15:00:00">2026-09-22</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/22/vLLM-%E9%AB%98%E5%90%9E%E5%90%90LLM%E6%8E%A8%E7%90%86%E5%BC%95%E6%93%8E/" title="vLLM 详解：从 PagedAttention 到 V1 引擎的高吞吐 LLM 推理">vLLM 详解：从 PagedAttention 到 V1 引擎的高吞吐 LLM 推理</a><time datetime="2026-09-22T10:00:00.000Z" title="Created 2026-09-22 10:00:00">2026-09-22</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/20/GPU-coreDump-%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86/" title="GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解">GPU coreDump 实现原理：从 CUDA 核心转储到 ELF 与 Xid 的全链路拆解</a><time datetime="2026-09-20T10:00:00.000Z" title="Created 2026-09-20 10:00:00">2026-09-20</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2026/09/18/AGENTS-md-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97/" title="AGENTS.md 使用指南：给 AI Agent 看的 README，一份文件跨工具通用">AGENTS.md 使用指南：给 AI Agent 看的 README，一份文件跨工具通用</a><time datetime="2026-09-18T15:00:00.000Z" title="Created 2026-09-18 15:00:00">2026-09-18</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By KernelDriver</span><span class="framework-info"><span>Framework </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.1.1</a><span class="footer-separator">|</span><span>Theme </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.7.0</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="Reading Mode"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="Toggle Between Light and Dark Mode"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="Toggle Between Single-column and Double-column"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="Settings"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="Table of Contents"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="Back to Top"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.7.0"></script><script src="/js/main.js?v=5.7.0"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script></div></body></html>
